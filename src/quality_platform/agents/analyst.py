@@ -85,6 +85,7 @@ class AgentContext:
     repo: QaRepositories
     models: ModelRegistry
     model_factory: Callable[[Any], Any] = create_chat_model
+    analysis: RequirementAnalysisDraft | None = None
 
 
 def _normalized(value: str) -> str:

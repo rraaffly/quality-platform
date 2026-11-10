@@ -226,6 +226,43 @@ class QaRepositories:
             for row in rows
         ]
 
+    def append_scope_change(
+        self,
+        project_id: str,
+        change_id: str,
+        payload: str,
+        *,
+        idempotency_key: str,
+        actor_project_id: str | None = None,
+    ) -> int:
+        self._authorize(actor_project_id or project_id, project_id, "write")
+        with self.engine.begin() as connection:
+            existing = connection.execute(
+                select(audit_events).where(audit_events.c.idempotency_key == idempotency_key)
+            ).first()
+            if existing is not None:
+                if (
+                    existing.project_id != project_id
+                    or existing.event_type != "scope_change"
+                    or existing.record_id != change_id
+                    or existing.payload != payload
+                ):
+                    raise ValueError("idempotency key reused with different scope change")
+                return int(existing.seq)
+            result = connection.execute(
+                audit_events.insert().values(
+                    project_id=project_id,
+                    event_type="scope_change",
+                    record_id=change_id,
+                    payload=payload,
+                    idempotency_key=idempotency_key,
+                )
+            )
+            primary_key = result.inserted_primary_key
+            if primary_key is None:
+                raise RuntimeError("scope change insert did not return a primary key")
+            return int(primary_key[0])
+
     def grant_cross_project_read(self, owner_project_id: str, grantee_project_id: str) -> Grant:
         if owner_project_id == grantee_project_id:
             raise ValueError("cross-project grant requires two different projects")

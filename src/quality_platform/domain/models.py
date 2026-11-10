@@ -129,12 +129,14 @@ class Clarification(Record):
 
 class BusinessScope(Record):
     id: str = Field(min_length=1)
+    workflow_id: str | None = None
     journey: str = Field(min_length=1)
     requirement_ids: tuple[str, ...] = ()
     excluded_requirement_ids: tuple[str, ...] = ()
     dependency_scope_ids: tuple[str, ...] = ()
     status: ScopeStatus = ScopeStatus.PROPOSED
     approval_id: str | None = None
+    reviewed_by: str | None = None
 
 
 class ArtifactVersion(Record):
