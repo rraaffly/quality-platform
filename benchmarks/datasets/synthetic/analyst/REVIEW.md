@@ -1,6 +1,6 @@
 # Analyst synthetic gold review
 
-Status: **PENDING_REVIEW**. A QA reviewer must verify the expected findings below before changing the corresponding entries in `benchmarks/ground_truth/v0.1.json` to `APPROVED`. No generated output is used as its own gold.
+Status: **APPROVED** for `conflict` and `missing_rule`. Rafly Rafsanjani approved the expected findings and source evidence on 2026-11-10 at 07:27:32 UTC. The decision is recorded in `benchmarks/ground_truth/v0.1.json`. No generated output is used as its own gold.
 
 | Case | Input | Expected finding | Evidence | Forbidden conclusion |
 | --- | --- | --- | --- | --- |
@@ -9,4 +9,4 @@ Status: **PENDING_REVIEW**. A QA reviewer must verify the expected findings belo
 
 The independent TOTP line in `synthetic-independent-prd.md` is used by the offline Analyst tests to check that a clear, unrelated requirement can remain eligible for draft work.
 
-The reviewer should record their own name, decision, and timestamp in the gold review history. The `shared_scope` case belongs to Task 9 and is not part of this review.
+The `shared_scope` case belongs to Task 9 and is not part of this review. It and the other non-Analyst cases remain `PENDING_REVIEW`.

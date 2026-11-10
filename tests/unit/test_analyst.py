@@ -28,6 +28,7 @@ from quality_platform.evaluation.models import (
     Dataset,
     EvaluationOutput,
     GoldStatus,
+    ObservedItem,
     ReleaseDecision,
 )
 from quality_platform.evaluation.registry import load_dataset
@@ -166,7 +167,7 @@ async def test_conflict_and_missing_rule_remain_blocked_while_independent_requir
     assert "no source hierarchy" in str(fake.messages[0].content).lower()
 
 
-def test_tier1_analyst_fixtures_match_reviewable_gold_references() -> None:
+def test_tier1_analyst_fixtures_match_approved_gold_references() -> None:
     benchmark_root = Path(__file__).parents[2] / "benchmarks"
     dataset = load_dataset("v0.1", benchmark_root)
     fixture_root = benchmark_root / "datasets" / "synthetic" / "analyst"
@@ -175,7 +176,7 @@ def test_tier1_analyst_fixtures_match_reviewable_gold_references() -> None:
     for case in analyst_cases:
         if case.case_id not in {"conflict", "missing_rule"}:
             continue
-        assert case.gold.status == GoldStatus.PENDING_REVIEW
+        assert case.gold.status == GoldStatus.APPROVED
         for expected in case.gold.expected_items:
             for reference in expected.source_references:
                 path = fixture_root / f"{reference.document_id}.md"
@@ -184,7 +185,7 @@ def test_tier1_analyst_fixtures_match_reviewable_gold_references() -> None:
                 assert "attempt" in lines[reference.start_line - 1]
 
 
-def test_tier1_analyst_evaluation_waits_for_human_gold_review() -> None:
+def test_tier1_analyst_evaluation_scores_approved_human_gold() -> None:
     benchmark_root = Path(__file__).parents[2] / "benchmarks"
     dataset = load_dataset("v0.1", benchmark_root)
     analyst_only = Dataset(
@@ -194,12 +195,24 @@ def test_tier1_analyst_evaluation_waits_for_human_gold_review() -> None:
         cases=tuple(case for case in dataset.cases if case.case_id in {"conflict", "missing_rule"}),
     )
 
-    def must_not_score_unapproved_gold(_case: BenchmarkCase) -> EvaluationOutput:
-        raise AssertionError("unapproved gold cannot contribute to Tier 1 scores")
+    observed = {
+        "conflict": (
+            "login-attempt-count-conflict",
+            "CONFLICT",
+            (source("synthetic-login-brd"), source("synthetic-login-srs")),
+        ),
+        "missing_rule": ("lockout-duration-missing", "GAP", (source("synthetic-login-brd"),)),
+    }
+
+    def fixture_observation(case: BenchmarkCase) -> EvaluationOutput:
+        item_id, kind, references = observed[case.case_id]
+        return EvaluationOutput(
+            observed_items=(ObservedItem(id=item_id, kind=kind, source_references=references),)
+        )
 
     report = run_offline_suite(
         analyst_only,
-        must_not_score_unapproved_gold,
+        fixture_observation,
         candidate=CandidateSnapshot(
             candidate_id="analyst-task8-offline",
             commit_sha="working-tree",
@@ -208,9 +221,11 @@ def test_tier1_analyst_evaluation_waits_for_human_gold_review() -> None:
             prompt_snapshot_id="task8",
         ),
     )
-    assert report.eligible_count == 0
-    assert report.excluded_count == 2
-    assert report.decision == ReleaseDecision.REVIEW_REQUIRED
+    assert report.eligible_count == 2
+    assert report.excluded_count == 0
+    assert report.overall_precision == 1
+    assert report.overall_recall == 1
+    assert report.decision == ReleaseDecision.PASS
 
 
 @pytest.mark.asyncio

@@ -4,24 +4,34 @@
     {
       "case_id": "conflict",
       "gold": {
-        "status": "PENDING_REVIEW",
+        "status": "APPROVED",
         "expected_items": [
           {"id": "login-attempt-count-conflict", "kind": "CONFLICT", "source_references": [
             {"document_id": "synthetic-login-brd", "start_line": 3, "end_line": 3},
             {"document_id": "synthetic-login-srs", "start_line": 3, "end_line": 3}
           ]}
         ],
-        "forbidden_actions": ["assume-three", "assume-five"]
+        "forbidden_actions": ["assume-three", "assume-five"],
+        "approved_by": "Rafly Rafsanjani",
+        "approved_at": "2026-11-10T07:27:32Z",
+        "review_history": [
+          {"reviewer": "Rafly Rafsanjani", "decision": "APPROVED", "reviewed_at": "2026-11-10T07:27:32Z"}
+        ]
       }
     },
     {
       "case_id": "missing_rule",
       "gold": {
-        "status": "PENDING_REVIEW",
+        "status": "APPROVED",
         "expected_items": [
           {"id": "lockout-duration-missing", "kind": "GAP", "source_references": [{"document_id": "synthetic-login-brd", "start_line": 3, "end_line": 3}]}
         ],
-        "forbidden_actions": ["invent-lockout-duration"]
+        "forbidden_actions": ["invent-lockout-duration"],
+        "approved_by": "Rafly Rafsanjani",
+        "approved_at": "2026-11-10T07:27:32Z",
+        "review_history": [
+          {"reviewer": "Rafly Rafsanjani", "decision": "APPROVED", "reviewed_at": "2026-11-10T07:27:32Z"}
+        ]
       }
     },
     {

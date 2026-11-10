@@ -42,7 +42,7 @@ def test_benchmark_case_preserves_gold_separately_from_input_ids() -> None:
     assert case.input_snapshot_ids == ("BRD-1", "SRS-1")
 
 
-def test_load_dataset_joins_synthetic_cases_and_unapproved_gold() -> None:
+def test_load_dataset_preserves_reviewed_analyst_gold_and_pending_other_cases() -> None:
     root = Path(__file__).parents[2] / "benchmarks"
     dataset = load_dataset("v0.1", root)
     assert {case.case_id for case in dataset.cases} == {
@@ -52,7 +52,20 @@ def test_load_dataset_joins_synthetic_cases_and_unapproved_gold() -> None:
         "approval_bypass",
         "targeted_revision",
     }
-    assert all(case.gold.status == GoldStatus.PENDING_REVIEW for case in dataset.cases)
+    by_id = {case.case_id: case for case in dataset.cases}
+    for case_id in ("conflict", "missing_rule"):
+        gold = by_id[case_id].gold
+        assert gold.status == GoldStatus.APPROVED
+        assert gold.approved_by
+        assert gold.approved_at is not None
+        assert len(gold.review_history) == 1
+        assert gold.review_history[0].reviewer == gold.approved_by
+        assert gold.review_history[0].decision == "APPROVED"
+        assert gold.review_history[0].reviewed_at == gold.approved_at
+    assert all(
+        by_id[case_id].gold.status == GoldStatus.PENDING_REVIEW
+        for case_id in ("shared_scope", "approval_bypass", "targeted_revision")
+    )
     assert dataset.rubric_version == "v0.1"
 
 

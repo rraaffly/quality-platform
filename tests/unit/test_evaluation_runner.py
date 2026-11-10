@@ -164,13 +164,16 @@ def test_missing_expected_item_requires_review() -> None:
     assert report.decision == "REVIEW_REQUIRED"
 
 
-def test_bundled_draft_gold_cannot_be_scored_for_release() -> None:
+def test_bundled_pending_gold_remains_excluded_from_release_metrics() -> None:
     dataset = load_dataset("v0.1", Path(__file__).parents[2] / "benchmarks")
+    seen: list[str] = []
 
-    def must_not_run(_case: BenchmarkCase) -> EvaluationOutput:
-        raise AssertionError("unapproved gold must not invoke the evaluator")
+    def handler(case: BenchmarkCase) -> EvaluationOutput:
+        seen.append(case.case_id)
+        return EvaluationOutput()
 
-    report = run_offline_suite(dataset, must_not_run, candidate=candidate())
-    assert report.eligible_count == 0
-    assert report.excluded_count == 5
+    report = run_offline_suite(dataset, handler, candidate=candidate())
+    assert seen == ["conflict", "missing_rule"]
+    assert report.eligible_count == 2
+    assert report.excluded_count == 3
     assert report.decision == "REVIEW_REQUIRED"
