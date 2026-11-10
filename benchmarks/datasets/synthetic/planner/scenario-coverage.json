@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "id": "TC-LOGIN-001",
+      "title": "Successful login",
+      "intent": "Verify that a registered user can sign in with valid credentials.",
+      "requirement_ids": ["R-LOGIN"],
+      "scenario": "Registered user submits valid credentials",
+      "case_type": "FUNCTIONAL_POSITIVE",
+      "priority": "HIGH",
+      "preconditions": ["A registered user exists."],
+      "test_data": {"username": "registered-user", "password": "valid-password"},
+      "steps": [
+        {
+          "action": "Submit valid credentials.",
+          "expected_result": "The user is signed in.",
+          "expected_result_sources": [
+            {"document_id": "synthetic-planner-login", "start_line": 3, "end_line": 3}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "TC-LOGIN-002",
+      "title": "Invalid login",
+      "intent": "Verify that invalid credentials do not authenticate a user.",
+      "requirement_ids": ["R-LOGIN"],
+      "scenario": "User submits invalid credentials",
+      "case_type": "FUNCTIONAL_NEGATIVE",
+      "priority": "HIGH",
+      "preconditions": ["The login page is available."],
+      "test_data": {"username": "registered-user", "password": "invalid-password"},
+      "steps": [
+        {
+          "action": "Submit invalid credentials.",
+          "expected_result": "The user is not signed in.",
+          "expected_result_sources": [
+            {"document_id": "synthetic-planner-login", "start_line": 4, "end_line": 4}
+          ]
+        }
+      ]
+    }
+  ]
+}
