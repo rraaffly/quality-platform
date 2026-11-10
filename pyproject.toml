@@ -49,6 +49,7 @@ python_version = "3.12"
 files = ["src", "tests"]
 check_untyped_defs = true
 warn_unused_ignores = true
+cache_dir = ".caches/mypy"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
