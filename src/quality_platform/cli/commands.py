@@ -17,7 +17,9 @@ from quality_platform.domain.models import (
     WorkflowStatus,
 )
 from quality_platform.evaluation.models import BenchmarkReport
-from quality_platform.evaluation.registry import load_dataset
+from quality_platform.evaluation.reporting import write_report
+from quality_platform.evaluation.runner import run_live_benchmark
+from quality_platform.llm.registry import AgentRole
 from quality_platform.services.approvals import ApprovalInput, ApprovalService
 from quality_platform.services.clarifications import ClarificationService
 from quality_platform.services.scopes import ScopeAction, ScopeDecision, ScopeService
@@ -318,13 +320,47 @@ def review_artifact(
 
 @benchmark.command("run")
 def run_benchmark(
+    tier: Annotated[int, typer.Option(help="Cost-bearing benchmark tier")],
     dataset_version: Annotated[str, typer.Option()],
-    benchmark_root: Annotated[Path, typer.Option()],
+    output_directory: Annotated[Path, typer.Option()],
+    agent_role: Annotated[AgentRole, typer.Option()] = AgentRole.ANALYST,
+    max_cases: Annotated[int | None, typer.Option()] = None,
+    confirm_budget: Annotated[bool, typer.Option("--confirm-budget")] = False,
+    max_cost_usd: Annotated[float | None, typer.Option()] = None,
+    config: Annotated[Path | None, typer.Option(help="Application model config")] = None,
+    input_usd_per_million: Annotated[float | None, typer.Option()] = None,
+    output_usd_per_million: Annotated[float | None, typer.Option()] = None,
 ) -> None:
-    dataset = load_dataset(dataset_version, benchmark_root)
-    typer.echo(
-        f"dataset {dataset.version}: {len(dataset.cases)} cases ready for explicit evaluation"
-    )
+    if tier != 2:
+        raise typer.BadParameter("only explicit --tier 2 live evaluation is available")
+    if not confirm_budget:
+        raise typer.BadParameter("--confirm-budget is required for live API evaluation")
+
+    updates = {
+        "QA_TIER2_BUDGET_CONFIRMED": "yes",
+        "QA_TIER2_MAX_COST_USD": None if max_cost_usd is None else str(max_cost_usd),
+        "QUALITY_PLATFORM_CONFIG": None if config is None else str(config),
+        "QA_TIER2_INPUT_USD_PER_MILLION": (
+            None if input_usd_per_million is None else str(input_usd_per_million)
+        ),
+        "QA_TIER2_OUTPUT_USD_PER_MILLION": (
+            None if output_usd_per_million is None else str(output_usd_per_million)
+        ),
+    }
+    previous = {key: os.environ.get(key) for key in updates}
+    try:
+        for key, value in updates.items():
+            if value is not None:
+                os.environ[key] = value
+        report = asyncio.run(run_live_benchmark(dataset_version, agent_role, max_cases))
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    json_path, markdown_path = write_report(report, output_directory)
+    typer.echo(f"{report.decision}: {json_path} {markdown_path}")
 
 
 @benchmark.command("report")

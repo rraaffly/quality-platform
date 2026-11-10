@@ -1,9 +1,11 @@
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from quality_platform.domain.models import SourceReference
+from quality_platform.llm.registry import AgentRole
 
 
 class EvalRecord(BaseModel):
@@ -70,6 +72,7 @@ class BenchmarkCase(EvalRecord):
     task_type: TaskType
     input_snapshot_ids: tuple[str, ...] = Field(min_length=1)
     severity: Severity
+    origin: Literal["synthetic", "real_world"] = "synthetic"
     gold: GoldRecord
 
 
@@ -117,6 +120,51 @@ class CaseScore(EvalRecord):
     findings: tuple[str, ...] = ()
 
 
+class GoldRequirement(EvalRecord):
+    id: str = Field(min_length=1)
+    source_references: tuple[SourceReference, ...] = Field(min_length=1)
+    semantic_alternatives: tuple[str, ...] = ()
+
+
+class ExtractionScore(EvalRecord):
+    matched_requirement_ids: tuple[str, ...]
+    missed_requirement_ids: tuple[str, ...]
+    unexpected_requirement_ids: tuple[str, ...]
+    review_required_requirement_ids: tuple[str, ...] = ()
+    precision: float = Field(ge=0, le=1)
+    recall: float = Field(ge=0, le=1)
+
+
+class GoldCase(EvalRecord):
+    case_id: str = Field(min_length=1)
+    requirements: tuple[GoldRequirement, ...]
+
+
+class Artifact(EvalRecord):
+    id: str = Field(min_length=1)
+    requirement_ids: tuple[str, ...]
+    source_references: tuple[SourceReference, ...] = ()
+
+
+class TraceabilityScore(EvalRecord):
+    requirement_coverage: float = Field(ge=0, le=1)
+    evidence_accuracy: float = Field(ge=0, le=1)
+    missing_requirement_ids: tuple[str, ...]
+    unexpected_requirement_ids: tuple[str, ...]
+    unsupported_source_count: int = Field(ge=0)
+    review_required: bool
+
+
+class ModelUsage(EvalRecord):
+    role: AgentRole
+    provider: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    cost_usd: float = Field(ge=0)
+
+
 class CandidateSnapshot(EvalRecord):
     candidate_id: str = Field(min_length=1)
     commit_sha: str = Field(min_length=1)
@@ -132,6 +180,8 @@ class BenchmarkReport(EvalRecord):
     rubric_id: str
     rubric_version: str
     candidate: CandidateSnapshot
+    usage: tuple[ModelUsage, ...] = ()
+    total_cost_usd: float = Field(default=0, ge=0)
     case_scores: tuple[CaseScore, ...]
     eligible_count: int = Field(ge=0)
     excluded_count: int = Field(ge=0)
