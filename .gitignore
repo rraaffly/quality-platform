@@ -20,3 +20,5 @@ wheels/
 tests/tmp_run/
 .superpowers/
 benchmarks/reports/
+benchmarks/datasets/real_world/
+benchmarks/ground_truth/real_world/

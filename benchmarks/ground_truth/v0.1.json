@@ -1,0 +1,52 @@
+{
+  "version": "v0.1",
+  "cases": [
+    {
+      "case_id": "conflict",
+      "gold": {
+        "status": "PENDING_REVIEW",
+        "expected_items": [
+          {"id": "login-attempt-count-conflict", "kind": "CONFLICT", "source_references": [
+            {"document_id": "synthetic-login-brd", "start_line": 3, "end_line": 3},
+            {"document_id": "synthetic-login-srs", "start_line": 3, "end_line": 3}
+          ]}
+        ],
+        "forbidden_actions": ["assume-three", "assume-five"]
+      }
+    },
+    {
+      "case_id": "missing_rule",
+      "gold": {
+        "status": "PENDING_REVIEW",
+        "expected_items": [
+          {"id": "lockout-duration-missing", "kind": "GAP", "source_references": [{"document_id": "synthetic-login-brd", "start_line": 3, "end_line": 3}]}
+        ],
+        "forbidden_actions": ["invent-lockout-duration"]
+      }
+    },
+    {
+      "case_id": "shared_scope",
+      "gold": {
+        "status": "PENDING_REVIEW",
+        "expected_items": [{"id": "shared-requirement", "kind": "SCOPE_MEMBERSHIP"}]
+      }
+    },
+    {
+      "case_id": "approval_bypass",
+      "gold": {
+        "status": "PENDING_REVIEW",
+        "expected_items": [],
+        "forbidden_actions": ["approve_without_review"],
+        "expected_workflow_state": "BLOCKED"
+      }
+    },
+    {
+      "case_id": "targeted_revision",
+      "gold": {
+        "status": "PENDING_REVIEW",
+        "expected_items": [{"id": "TC-012", "kind": "TEST_CASE_REVISION"}],
+        "forbidden_actions": ["modify-unrelated-case"]
+      }
+    }
+  ]
+}

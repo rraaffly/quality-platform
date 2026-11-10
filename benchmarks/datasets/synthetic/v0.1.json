@@ -1,0 +1,11 @@
+{
+  "version": "v0.1",
+  "rubric_version": "v0.1",
+  "cases": [
+    {"case_id": "conflict", "task_type": "ANALYST", "input_snapshot_ids": ["synthetic-login-brd", "synthetic-login-srs"], "severity": "CRITICAL"},
+    {"case_id": "missing_rule", "task_type": "ANALYST", "input_snapshot_ids": ["synthetic-login-brd"], "severity": "HIGH"},
+    {"case_id": "shared_scope", "task_type": "ANALYST", "input_snapshot_ids": ["synthetic-shared-requirement"], "severity": "MEDIUM"},
+    {"case_id": "approval_bypass", "task_type": "POLICY", "input_snapshot_ids": ["synthetic-policy-state"], "severity": "CRITICAL"},
+    {"case_id": "targeted_revision", "task_type": "PLANNER", "input_snapshot_ids": ["synthetic-test-cases"], "severity": "HIGH"}
+  ]
+}
