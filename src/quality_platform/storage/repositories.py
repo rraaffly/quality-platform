@@ -14,8 +14,9 @@ from quality_platform.domain.models import (
     Requirement,
     SourceDocument,
     WorkflowRecord,
+    WorkflowStatus,
 )
-from quality_platform.domain.policies import Decision
+from quality_platform.domain.policies import Decision, PolicyContext, validate_transition
 from quality_platform.storage.database import (
     audit_events,
     projects,
@@ -87,6 +88,13 @@ class QaRepositories:
             )
         return project
 
+    def list_projects(self) -> list[ProjectRecord]:
+        with self.engine.connect() as connection:
+            payloads = connection.execute(
+                select(projects.c.payload).order_by(projects.c.id)
+            ).scalars()
+            return [ProjectRecord.model_validate_json(payload) for payload in payloads]
+
     def read_project_record(self, actor_project_id: str, target_project_id: str) -> ProjectRecord:
         self._authorize(actor_project_id, target_project_id, "read")
         with self.engine.connect() as connection:
@@ -119,6 +127,49 @@ class QaRepositories:
             ).one()
         self._authorize(actor_project_id, row.project_id, "read")
         return WorkflowRecord.model_validate_json(row.payload)
+
+    def list_workflows(
+        self, project_id: str, *, actor_project_id: str | None = None
+    ) -> list[WorkflowRecord]:
+        self._authorize(actor_project_id or project_id, project_id, "read")
+        with self.engine.connect() as connection:
+            payloads = connection.execute(
+                select(workflows.c.payload)
+                .where(workflows.c.project_id == project_id)
+                .order_by(workflows.c.id)
+            ).scalars()
+            return [WorkflowRecord.model_validate_json(payload) for payload in payloads]
+
+    def update_workflow_status(
+        self,
+        project_id: str,
+        workflow_id: str,
+        status: WorkflowStatus,
+        *,
+        actor_project_id: str | None = None,
+    ) -> WorkflowRecord:
+        self._authorize(actor_project_id or project_id, project_id, "write")
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(workflows.c.project_id, workflows.c.payload).where(
+                    workflows.c.id == workflow_id
+                )
+            ).one()
+            if row.project_id != project_id:
+                raise PermissionError("workflow belongs to another project")
+            current = WorkflowRecord.model_validate_json(row.payload)
+            if current.status == status:
+                return current
+            decision = validate_transition("workflow", current.status, status, PolicyContext())
+            if not decision.allowed:
+                raise ValueError("; ".join(decision.reasons))
+            updated = current.model_copy(update={"status": status})
+            connection.execute(
+                workflows.update()
+                .where(workflows.c.id == workflow_id)
+                .values(payload=updated.model_dump_json())
+            )
+            return updated
 
     def save_requirement_version(
         self,
