@@ -65,7 +65,9 @@ def test_duplicate_case_id_fails_canonical_validation() -> None:
     case = TestCase(
         id="TC-012",
         title="Successful transfer",
+        intent="Verify successful transfer.",
         requirement_ids=("REQ-1",),
+        scenario="User submits a valid transfer.",
         steps=(TestStep(action="Submit", expected_result="Success"),),
     )
     with pytest.raises(ValidationError, match="duplicate"):

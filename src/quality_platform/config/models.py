@@ -34,4 +34,5 @@ class AppConfig(BaseModel):
     database_path: Path
     workspace_root: Path
     max_concurrency: int = Field(default=3, ge=1)
+    test_case_style: Literal["detailed", "gherkin", "both"] = "both"
     agent_models: AgentModels
