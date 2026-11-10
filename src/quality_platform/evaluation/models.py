@@ -34,6 +34,7 @@ class ReleaseDecision(StrEnum):
     PASS = "PASS"
     REVIEW_REQUIRED = "REVIEW_REQUIRED"
     BLOCKED = "BLOCKED"
+    APPROVED_EXCEPTION = "APPROVED_EXCEPTION"
 
 
 class ExpectedItem(EvalRecord):

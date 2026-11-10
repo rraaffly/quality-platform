@@ -1,0 +1,8 @@
+version: v0.1
+status: ILLUSTRATIVE
+minimum_precision: 0.95
+minimum_recall: 0.95
+minimum_evidence_accuracy: 0.98
+maximum_precision_regression: 0.02
+maximum_recall_regression: 0.02
+maximum_evidence_regression: 0.02
