@@ -1,0 +1,49 @@
+[project]
+name = "quality-platform"
+version = "0.1.0"
+description = "Agentic Software Testing Lifecycle Workflow — multi-agent LangGraph + CLI"
+readme = "README.md"
+authors = [
+    { name = "Rafly Rafsanjani", email = "mrrafsanjani@pgi.local" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.14.3",
+    "pyyaml>=6.0.3",
+    "rich>=15.0.0",
+    "typer>=0.29.0",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.7.0",
+    "pyright>=1.1.414",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
+
+[project.scripts]
+qa-orchestrator = "quality_platform:main"
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+cache-dir = ".caches/ruff"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+cache_dir = ".caches/pytest"
+filterwarnings = [
+    # Domain models are legitimately named Test* (TestCase, TestPlan, ...).
+    "ignore::pytest.PytestCollectionWarning",
+]
