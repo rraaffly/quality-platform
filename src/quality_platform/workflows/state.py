@@ -8,6 +8,7 @@ class WorkflowState(TypedDict):
     target_id: str
     target_version: int
     baseline_id: str
+    content_hash: str
     requested_at: str
     status: str
     actor: NotRequired[str]

@@ -205,6 +205,9 @@ class ScopeService:
             )
         )
 
+    def unresolved_clarifications(self, requirement_ids: tuple[str, ...]) -> tuple[str, ...]:
+        return self._unresolved_questions(requirement_ids)
+
     def review_scope(self, scope_id: str, decision: ScopeDecision) -> BusinessScope:
         if not decision.human_reviewed:
             raise ValueError("human scope review required")
