@@ -102,6 +102,7 @@ class Requirement(Record):
     version: int = Field(ge=1)
     statement: str = Field(min_length=1)
     source_references: tuple[SourceReference, ...] = Field(min_length=1)
+    source_quotes: tuple[str, ...] = ()
     dependency_ids: tuple[str, ...] = ()
     readiness: RequirementReadiness = RequirementReadiness.EXTRACTED
     approval_id: str | None = None
@@ -116,11 +117,14 @@ class StakeholderAnswer(Record):
 
 class Clarification(Record):
     id: str = Field(min_length=1)
+    workflow_id: str | None = None
     issue_type: ClarificationIssueType
     question: str = Field(min_length=1)
     source_references: tuple[SourceReference, ...] = Field(min_length=1)
+    affected_requirement_ids: tuple[str, ...] = ()
     answers: tuple[StakeholderAnswer, ...] = ()
     status: ClarificationStatus = ClarificationStatus.OPEN
+    resolution: str | None = None
 
 
 class BusinessScope(Record):
