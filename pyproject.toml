@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.14.3",
     "pyyaml>=6.0.3",
     "rich>=15.0.0",
+    "sqlalchemy>=2.1.8",
     "typer>=0.29.0",
 ]
 
