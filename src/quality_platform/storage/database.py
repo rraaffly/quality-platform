@@ -69,6 +69,15 @@ audit_events = Table(
     Column("idempotency_key", String, nullable=False, unique=True),
 )
 
+source_documents = Table(
+    "source_documents",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("project_id", String, ForeignKey("projects.id"), nullable=False),
+    Column("content_hash", String, nullable=False),
+    Column("payload", Text, nullable=False),
+)
+
 
 def open_database(path: Path) -> Engine:
     database_path = path.resolve()
@@ -87,8 +96,12 @@ def open_database(path: Path) -> Engine:
     with engine.begin() as connection:
         version = connection.execute(select(schema_versions.c.version)).scalar_one_or_none()
         if version is None:
-            connection.execute(schema_versions.insert().values(id=1, version=1))
-        elif version != 1:
+            connection.execute(schema_versions.insert().values(id=1, version=2))
+        elif version == 1:
+            connection.execute(
+                schema_versions.update().where(schema_versions.c.id == 1).values(version=2)
+            )
+        elif version != 2:
             raise RuntimeError(f"unsupported database schema version: {version}")
         connection.exec_driver_sql(
             "CREATE TRIGGER IF NOT EXISTS audit_events_no_update "

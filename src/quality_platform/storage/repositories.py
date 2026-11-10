@@ -9,6 +9,7 @@ from quality_platform.domain.models import (
     Clarification,
     ProjectRecord,
     Requirement,
+    SourceDocument,
     WorkflowRecord,
 )
 from quality_platform.domain.policies import Decision
@@ -17,6 +18,7 @@ from quality_platform.storage.database import (
     projects,
     read_grants,
     requirement_versions,
+    source_documents,
     workflows,
 )
 
@@ -242,3 +244,28 @@ class QaRepositories:
                     )
                 )
         return grant
+
+    def save_source_document(
+        self, document: SourceDocument, *, actor_project_id: str | None = None
+    ) -> SourceDocument:
+        self._authorize(actor_project_id or document.project_id, document.project_id, "write")
+        with self.engine.begin() as connection:
+            connection.execute(
+                source_documents.insert().values(
+                    id=document.id,
+                    project_id=document.project_id,
+                    content_hash=document.content_hash,
+                    payload=document.model_dump_json(),
+                )
+            )
+        return document
+
+    def read_source_document(self, actor_project_id: str, source_id: str) -> SourceDocument:
+        with self.engine.connect() as connection:
+            row = connection.execute(
+                select(source_documents.c.project_id, source_documents.c.payload).where(
+                    source_documents.c.id == source_id
+                )
+            ).one()
+        self._authorize(actor_project_id, row.project_id, "read")
+        return SourceDocument.model_validate_json(row.payload)
