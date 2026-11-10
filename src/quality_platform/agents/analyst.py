@@ -109,7 +109,9 @@ def _check_quote(quote: str, reference: SourceReference, lines_by_id: dict[str, 
 
 
 def _check_numeric_conflicts(
-    draft: RequirementAnalysisDraft, lines_by_id: dict[str, list[str]]
+    draft: RequirementAnalysisDraft,
+    lines_by_id: dict[str, list[str]],
+    resolved_conflicts: tuple[Clarification, ...] = (),
 ) -> None:
     patterns: dict[str, list[tuple[SourceReference, tuple[str, ...]]]] = {}
     for document_id, lines in lines_by_id.items():
@@ -156,6 +158,32 @@ def _check_numeric_conflicts(
             )
             for item in draft.clarifications
         )
+        resolved = next(
+            (
+                item
+                for item in resolved_conflicts
+                if item.issue_type == ClarificationIssueType.CROSS_DOCUMENT_CONFLICT
+                and item.resolution is not None
+                and required.issubset(
+                    {
+                        (reference.document_id, reference.start_line, reference.end_line)
+                        for reference in item.source_references
+                    }
+                )
+            ),
+            None,
+        )
+        resolved_requirement = resolved is not None and any(
+            requirement.readiness == RequirementReadiness.VALIDATED
+            and _normalized(requirement.statement) == _normalized(resolved.resolution or "")
+            and any(
+                (reference.document_id, reference.start_line, reference.end_line) in required
+                for reference in requirement.source_references
+            )
+            for requirement in draft.requirements
+        )
+        if resolved_requirement:
+            continue
         if not reported:
             raise ValueError("unreported numeric conflict across documents")
         if any(
@@ -167,6 +195,24 @@ def _check_numeric_conflicts(
             for requirement in draft.requirements
         ):
             raise ValueError("numeric conflict cannot produce a validated requirement")
+
+
+def _resolved_conflicts(context: AgentContext) -> tuple[Clarification, ...]:
+    latest: dict[str, Clarification] = {}
+    for event in context.repo.list_decisions(context.project_id):
+        if event.event_type != "clarification":
+            continue
+        item = Clarification.model_validate_json(event.payload)
+        if item.workflow_id == context.workflow_id:
+            latest[item.id] = item
+    return tuple(
+        item
+        for item in latest.values()
+        if item.status == ClarificationStatus.RESOLVED
+        and item.issue_type == ClarificationIssueType.CROSS_DOCUMENT_CONFLICT
+        and item.resolution is not None
+        and item.answers
+    )
 
 
 async def analyze_documents(
@@ -198,14 +244,24 @@ async def analyze_documents(
         lines_by_id[source_id] = lines
         numbered = "\n".join(f"{index}: {line}" for index, line in enumerate(lines, 1))
         inputs.append(f"Document {source_id} ({document.input_type}):\n{numbered}")
+    resolved_conflicts = _resolved_conflicts(context)
+    resolved_rules = "\n".join(
+        f"- {item.id}: {item.resolution} (answer source: {item.answers[-1].source})"
+        for item in resolved_conflicts
+    )
     instruction = (
         "Extract requirements with exact document, line references, and source quotes. "
         "Mark a requirement VALIDATED only when its statement occurs verbatim in a cited quote. "
         "Otherwise leave it EXTRACTED or BLOCKED. Identify every test-relevant "
         "missing rule, ambiguity, contradiction, and cross-document conflict. There is no source hierarchy. "
-        "Never choose a side of a conflict or invent an expected result. Ask specific questions for "
-        "unresolved rules. Mark affected requirements BLOCKED; independent clear requirements may be "
-        "VALIDATED for draft work only. Return all questions in one batch.\n\n"
+        "Never choose a side of an unresolved conflict or invent an expected result. Ask specific "
+        "questions for unresolved rules. A human-reviewed resolved rule listed below may revalidate "
+        "the affected requirement only when the statement exactly matches that rule and still has "
+        "verbatim document evidence. Mark other affected requirements BLOCKED; independent clear "
+        "requirements may be VALIDATED for draft work only. Return all questions in one batch.\n\n"
+        "Resolved stakeholder rules:\n"
+        + (resolved_rules or "- none")
+        + "\n\n"
         + "\n\n".join(inputs)
     )
     result = await generate_structured(
@@ -226,5 +282,5 @@ async def analyze_documents(
     for item in draft.clarifications:
         for reference in item.source_references:
             _check_reference(reference, lines_by_id)
-    _check_numeric_conflicts(draft, lines_by_id)
+    _check_numeric_conflicts(draft, lines_by_id, resolved_conflicts)
     return draft

@@ -40,6 +40,18 @@ def write_report(report: BenchmarkReport, directory: Path) -> tuple[Path, Path]:
         f"- Excluded cases: {report.excluded_count}",
         f"- Precision: {report.overall_precision:.3f}",
         f"- Recall: {report.overall_recall:.3f}",
+        f"- Repeats: {report.repeat_count}",
+        f"- Latency (seconds): {report.latency_seconds:.3f}",
+        "- Active QA time (minutes): "
+        + (f"{report.active_qa_minutes:.3f}" if report.active_qa_minutes is not None else "N/A"),
+        "- Manual baseline time (minutes): "
+        + (
+            f"{report.manual_baseline_minutes:.3f}"
+            if report.manual_baseline_minutes is not None
+            else "N/A"
+        ),
+        "- Failed cases: " + (", ".join(report.failure_case_ids) or "none"),
+        "- Readiness labels: " + (", ".join(report.readiness_labels) or "none"),
         "",
         "| Case | Precision | Recall | Evidence | Critical violation |",
         "| --- | ---: | ---: | ---: | --- |",

@@ -189,3 +189,9 @@ class BenchmarkReport(EvalRecord):
     overall_precision: float = Field(ge=0, le=1)
     overall_recall: float = Field(ge=0, le=1)
     decision: ReleaseDecision
+    repeat_count: int = Field(default=1, ge=1)
+    latency_seconds: float = Field(default=0, ge=0)
+    active_qa_minutes: float | None = Field(default=None, ge=0)
+    manual_baseline_minutes: float | None = Field(default=None, ge=0)
+    failure_case_ids: tuple[str, ...] = ()
+    readiness_labels: tuple[str, ...] = ()

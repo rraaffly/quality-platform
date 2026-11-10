@@ -18,7 +18,7 @@ from quality_platform.domain.models import (
 )
 from quality_platform.evaluation.models import BenchmarkReport
 from quality_platform.evaluation.reporting import write_report
-from quality_platform.evaluation.runner import run_live_benchmark
+from quality_platform.evaluation.runner import run_full_benchmark, run_live_benchmark
 from quality_platform.llm.registry import AgentRole
 from quality_platform.services.approvals import ApprovalInput, ApprovalService
 from quality_platform.services.clarifications import ClarificationService
@@ -330,21 +330,31 @@ def run_benchmark(
     config: Annotated[Path | None, typer.Option(help="Application model config")] = None,
     input_usd_per_million: Annotated[float | None, typer.Option()] = None,
     output_usd_per_million: Annotated[float | None, typer.Option()] = None,
+    repeats: Annotated[int, typer.Option(help="Tier 3 repeated runs")] = 1,
+    active_qa_minutes: Annotated[float | None, typer.Option()] = None,
+    manual_baseline_minutes: Annotated[float | None, typer.Option()] = None,
 ) -> None:
-    if tier != 2:
-        raise typer.BadParameter("only explicit --tier 2 live evaluation is available")
+    if tier not in {2, 3}:
+        raise typer.BadParameter("only explicit --tier 2 or --tier 3 evaluation is available")
     if not confirm_budget:
         raise typer.BadParameter("--confirm-budget is required for live API evaluation")
 
+    prefix = f"QA_TIER{tier}"
     updates = {
-        "QA_TIER2_BUDGET_CONFIRMED": "yes",
-        "QA_TIER2_MAX_COST_USD": None if max_cost_usd is None else str(max_cost_usd),
+        f"{prefix}_BUDGET_CONFIRMED": "yes",
+        f"{prefix}_MAX_COST_USD": None if max_cost_usd is None else str(max_cost_usd),
         "QUALITY_PLATFORM_CONFIG": None if config is None else str(config),
-        "QA_TIER2_INPUT_USD_PER_MILLION": (
+        f"{prefix}_INPUT_USD_PER_MILLION": (
             None if input_usd_per_million is None else str(input_usd_per_million)
         ),
-        "QA_TIER2_OUTPUT_USD_PER_MILLION": (
+        f"{prefix}_OUTPUT_USD_PER_MILLION": (
             None if output_usd_per_million is None else str(output_usd_per_million)
+        ),
+        "QA_TIER3_ACTIVE_QA_MINUTES": (
+            None if active_qa_minutes is None else str(active_qa_minutes)
+        ),
+        "QA_TIER3_MANUAL_BASELINE_MINUTES": (
+            None if manual_baseline_minutes is None else str(manual_baseline_minutes)
         ),
     }
     previous = {key: os.environ.get(key) for key in updates}
@@ -352,7 +362,11 @@ def run_benchmark(
         for key, value in updates.items():
             if value is not None:
                 os.environ[key] = value
-        report = asyncio.run(run_live_benchmark(dataset_version, agent_role, max_cases))
+        report = (
+            asyncio.run(run_live_benchmark(dataset_version, agent_role, max_cases))
+            if tier == 2
+            else asyncio.run(run_full_benchmark(dataset_version, repeats=repeats))
+        )
     finally:
         for key, value in previous.items():
             if value is None:
@@ -360,7 +374,8 @@ def run_benchmark(
             else:
                 os.environ[key] = value
     json_path, markdown_path = write_report(report, output_directory)
-    typer.echo(f"{report.decision}: {json_path} {markdown_path}")
+    labels = ",".join(report.readiness_labels) or "none"
+    typer.echo(f"{report.decision}: {json_path} {markdown_path} labels={labels}")
 
 
 @benchmark.command("report")

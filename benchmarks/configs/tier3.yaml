@@ -1,0 +1,12 @@
+candidate_id: tier3-full-agent
+prompt_snapshot_id: tier3-observation-v1
+representative_case_ids:
+  - conflict
+  - missing_rule
+  - shared_scope
+  - approval_bypass
+  - targeted_revision
+max_budget_usd: 20.0
+agent_role: analyst
+max_repeats: 5
+minimum_approved_real_cases: 12
