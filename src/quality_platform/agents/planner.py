@@ -55,6 +55,8 @@ def _scope_requirements(
         context.repo, project_id=context.project_id, workflow_id=context.workflow_id
     )
     scope = scope_service.get(scope_id)
+    if scope.status == ScopeStatus.REJECTED:
+        raise ValueError("rejected scope is not eligible for planning")
     scopes = {item.id: item for item in scope_service.list_scopes()}
     by_id = {requirement.id: requirement for requirement in analysis.requirements}
     unknown = set(scope.requirement_ids).difference(by_id)
@@ -120,8 +122,8 @@ def _requirements_prompt(
     supported = "\n".join(
         f"- {item.id}: {item.statement}; evidence="
         + ", ".join(
-            f"{reference.document_id}:{reference.start_line}-{reference.end_line}"
-            for reference in item.source_references
+            f"{reference.document_id}:{reference.start_line}-{reference.end_line} quote={quote!r}"
+            for reference, quote in zip(item.source_references, item.source_quotes, strict=True)
         )
         for item in eligible
     )
@@ -135,7 +137,7 @@ def _requirements_prompt(
 
 
 def _normalized_claim(value: str) -> str:
-    return " ".join(re.findall(r"\w+", value.casefold()))
+    return re.sub(r"\s+", " ", value).strip().rstrip(".!?").casefold()
 
 
 async def create_test_plan(context: AgentContext, scope_id: str) -> TestPlanDraft:

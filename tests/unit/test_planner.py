@@ -21,7 +21,7 @@ from quality_platform.domain.models import (
 )
 from quality_platform.domain.schemas import TestCase, TestCaseSet, TestStep
 from quality_platform.llm.registry import ModelRegistry
-from quality_platform.services.scopes import ScopeProposal, ScopeService
+from quality_platform.services.scopes import ScopeAction, ScopeDecision, ScopeProposal, ScopeService
 from quality_platform.storage.database import open_database
 from quality_platform.storage.repositories import QaRepositories
 
@@ -75,14 +75,16 @@ def make_test_case(
 
 
 def setup_context(
-    tmp_path: Path, results: list[object]
+    tmp_path: Path,
+    results: list[object],
+    *,
+    login_rule: str = "The user is signed in after submitting valid credentials.",
 ) -> tuple[AgentContext, FakeModel, RequirementAnalysisDraft]:
     repo = QaRepositories(open_database(tmp_path / "qa.sqlite"))
     repo.create_project(ProjectRecord(id="P1", name="Planner", root=tmp_path))
     source = tmp_path / "brd.md"
     source.write_text(
-        "# Login\n\nThe user is signed in after submitting valid credentials.\n"
-        "The lockout threshold is unresolved.\n",
+        f"# Login\n\n{login_rule}\nThe lockout threshold is unresolved.\n",
         encoding="utf-8",
     )
     repo.save_source_document(
@@ -109,9 +111,9 @@ def setup_context(
         Requirement(
             id="R-LOGIN",
             version=1,
-            statement="The user is signed in after submitting valid credentials.",
+            statement=login_rule,
             source_references=(reference(3),),
-            source_quotes=("The user is signed in after submitting valid credentials.",),
+            source_quotes=(login_rule,),
             readiness=RequirementReadiness.VALIDATED,
         ),
         Requirement(
@@ -232,6 +234,48 @@ async def test_expected_result_cannot_invent_a_rule_even_with_a_valid_citation(
         await design_test_cases(context, "LOGIN")
 
 
+@pytest.mark.parametrize(
+    ("source_rule", "invented_result"),
+    [
+        ("The balance must be >= 10.", "The balance must be <= 10."),
+        ("The temperature must be -5.", "The temperature must be 5."),
+    ],
+)
+@pytest.mark.asyncio
+async def test_expected_result_preserves_operators_and_numeric_signs(
+    tmp_path: Path, source_rule: str, invented_result: str
+) -> None:
+    altered = make_test_case().model_copy(
+        update={
+            "steps": (
+                TestStep(
+                    action="Check the rule.",
+                    expected_result=invented_result,
+                    expected_result_sources=(reference(3),),
+                ),
+            )
+        }
+    )
+    context, _fake, _analysis = setup_context(
+        tmp_path, [TestCaseSet(cases=(altered,))], login_rule=source_rule
+    )
+    with pytest.raises(ValueError, match="unsupported expected result"):
+        await design_test_cases(context, "LOGIN")
+
+
+@pytest.mark.asyncio
+async def test_rejected_scope_cannot_generate_cases(tmp_path: Path) -> None:
+    context, fake, _analysis = setup_context(tmp_path, [TestCaseSet(cases=(make_test_case(),))])
+    scopes = ScopeService(context.repo, project_id="P1", workflow_id="W1")
+    scopes.review_scope(
+        "LOGIN",
+        ScopeDecision(action=ScopeAction.REJECT, actor="QA", human_reviewed=True),
+    )
+    with pytest.raises(ValueError, match="rejected"):
+        await design_test_cases(context, "LOGIN")
+    assert fake.messages == []
+
+
 def test_case_requires_explicit_intent_and_scenario() -> None:
     payload = make_test_case().model_dump()
     del payload["intent"]
@@ -324,7 +368,7 @@ async def test_planner_scenario_fixture_runs_through_offline_agent_validation(
     fixture = TestCaseSet.model_validate_json(
         (fixture_root / "scenario-coverage.json").read_text(encoding="utf-8")
     )
-    context, _fake, _analysis = setup_context(tmp_path, [fixture])
+    context, fake, _analysis = setup_context(tmp_path, [fixture])
     context.repo.save_source_document(
         SourceDocument(
             id="synthetic-planner-login",
@@ -369,6 +413,8 @@ async def test_planner_scenario_fixture_runs_through_offline_agent_validation(
 
     observed = await design_test_cases(context, "SCENARIOS")
     assert {case.id for case in observed} == {"TC-LOGIN-001", "TC-LOGIN-002"}
+    assert lines[2] in str(fake.messages[0].content)
+    assert lines[3] in str(fake.messages[0].content)
     assert {
         step.expected_result_sources[0].start_line for case in observed for step in case.steps
     } == {
