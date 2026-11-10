@@ -79,6 +79,9 @@ class ClarificationService:
         except KeyError:
             raise KeyError("clarification is outside this workflow") from None
 
+    def list_clarifications(self) -> list[Clarification]:
+        return list(self._items().values())
+
     def _append(self, item: Clarification) -> None:
         revision = len(
             [

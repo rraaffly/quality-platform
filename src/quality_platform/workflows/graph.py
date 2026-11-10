@@ -136,6 +136,9 @@ class WorkflowRuntime:
             }
         }
 
+    def _checkpoint_ns(self, workflow: WorkflowRecord) -> str:
+        return f"{workflow.project_id}:{workflow.id}:{self.services.target.scope_id}"
+
     def _result(
         self, workflow: WorkflowRecord, state: Mapping[str, Any], waiting: bool
     ) -> RunResult:
@@ -143,7 +146,7 @@ class WorkflowRuntime:
         return RunResult(
             status=status,
             thread_id=self._thread_id(workflow),
-            checkpoint_ns=f"{workflow.project_id}:{workflow.id}:{self._thread_id(workflow)}",
+            checkpoint_ns=self._checkpoint_ns(workflow),
             approval_id=state.get("approval_id"),
             reasons=tuple(state.get("reasons", [])),
         )
