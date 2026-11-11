@@ -72,6 +72,7 @@ class BenchmarkCase(EvalRecord):
     case_id: str = Field(min_length=1)
     task_type: TaskType
     input_snapshot_ids: tuple[str, ...] = Field(min_length=1)
+    input_snapshot_hashes: dict[str, str] = Field(default_factory=dict)
     severity: Severity
     origin: Literal["synthetic", "real_world"] = "synthetic"
     gold: GoldRecord
@@ -82,6 +83,7 @@ class Dataset(EvalRecord):
     rubric_id: str = "qa-mvp"
     rubric_version: str = Field(min_length=1)
     cases: tuple[BenchmarkCase, ...]
+    content_fingerprint: str = ""
 
     @model_validator(mode="after")
     def case_ids_are_unique(self) -> "Dataset":
@@ -195,3 +197,5 @@ class BenchmarkReport(EvalRecord):
     manual_baseline_minutes: float | None = Field(default=None, ge=0)
     failure_case_ids: tuple[str, ...] = ()
     readiness_labels: tuple[str, ...] = ()
+    input_fingerprint: str = ""
+    evaluated_case_ids: tuple[str, ...] = ()

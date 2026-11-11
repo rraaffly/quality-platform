@@ -62,6 +62,12 @@ def decide_regression(
         or candidate.rubric_version != latest_approved.rubric_version
     ):
         version_reasons.append("rubric version changed; re-evaluate the approved comparator")
+    if candidate.evaluated_case_ids != latest_approved.evaluated_case_ids:
+        version_reasons.append("evaluated case set changed; re-evaluate the approved comparator")
+    if candidate.input_fingerprint != latest_approved.input_fingerprint:
+        version_reasons.append(
+            "benchmark input fingerprint changed; re-evaluate the approved comparator"
+        )
     if version_reasons:
         if critical_failure:
             version_reasons.insert(0, "critical hard-gate violation cannot be averaged or excepted")
@@ -155,6 +161,8 @@ def promote_baseline(
     current: BenchmarkReport,
     candidate: BenchmarkReport,
     approval: BaselineApproval,
+    *,
+    regression: RegressionDecision,
 ) -> BenchmarkReport:
     if approval.candidate_run_id != candidate.run_id:
         raise ValueError("approval does not match the candidate run")
@@ -162,6 +170,19 @@ def promote_baseline(
         return current
     if any(score.critical_violation for score in candidate.case_scores):
         raise ValueError("critical violation cannot be promoted as an exception")
+    if (
+        regression.candidate_run_id != candidate.run_id
+        or regression.baseline_run_id != current.run_id
+    ):
+        raise ValueError("regression decision does not match candidate and baseline runs")
+    if regression.requires_reevaluation or regression.decision not in {
+        ReleaseDecision.PASS,
+        ReleaseDecision.APPROVED_EXCEPTION,
+    }:
+        raise ValueError("regression decision does not permit baseline promotion")
+    evidence = f"regression-decision:{regression.decision.value}"
+    if evidence not in approval.reviewed_evidence:
+        raise ValueError("approval evidence does not include the regression decision")
     if candidate.decision not in {
         ReleaseDecision.PASS,
         ReleaseDecision.APPROVED_EXCEPTION,

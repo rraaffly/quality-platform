@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -73,3 +74,64 @@ def test_dataset_version_cannot_escape_benchmark_root() -> None:
     root = Path(__file__).parents[2] / "benchmarks"
     with pytest.raises(ValueError, match="version"):
         load_dataset("../../secrets", root)
+
+
+def test_load_dataset_merges_optional_approved_real_world_manifest(tmp_path: Path) -> None:
+    (tmp_path / "datasets" / "synthetic").mkdir(parents=True)
+    (tmp_path / "datasets" / "real_world").mkdir(parents=True)
+    (tmp_path / "ground_truth" / "real_world").mkdir(parents=True)
+    (tmp_path / "rubrics").mkdir()
+    (tmp_path / "datasets" / "synthetic" / "v0.1.json").write_text(
+        json.dumps({"version": "v0.1", "rubric_version": "v0.1", "cases": []}),
+        encoding="utf-8",
+    )
+    (tmp_path / "ground_truth" / "v0.1.json").write_text(
+        json.dumps({"version": "v0.1", "cases": []}), encoding="utf-8"
+    )
+    (tmp_path / "rubrics" / "v0.1.json").write_text(
+        json.dumps({"id": "qa-mvp", "version": "v0.1", "description": "test"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "datasets" / "real_world" / "v0.1.json").write_text(
+        json.dumps(
+            {
+                "version": "v0.1",
+                "rubric_version": "v0.1",
+                "cases": [
+                    {
+                        "case_id": "customer-login",
+                        "task_type": "ANALYST",
+                        "input_snapshot_ids": ["customer-brd"],
+                        "input_snapshot_hashes": {"customer-brd": "a" * 64},
+                        "severity": "HIGH",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "ground_truth" / "real_world" / "v0.1.json").write_text(
+        json.dumps(
+            {
+                "version": "v0.1",
+                "cases": [
+                    {
+                        "case_id": "customer-login",
+                        "gold": {
+                            "status": "APPROVED",
+                            "expected_items": [],
+                            "approved_by": "QA lead",
+                            "approved_at": "2026-11-11T00:00:00Z",
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dataset = load_dataset("v0.1", tmp_path)
+
+    assert [case.case_id for case in dataset.cases] == ["customer-login"]
+    assert dataset.cases[0].origin == "real_world"
+    assert dataset.content_fingerprint

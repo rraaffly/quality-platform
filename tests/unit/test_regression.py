@@ -30,6 +30,8 @@ def report(
     dataset: str = "v0.1",
     rubric: str = "v0.1",
     decision: ReleaseDecision = ReleaseDecision.PASS,
+    case_id: str = "case-1",
+    fingerprint: str = "inputs-v1",
 ) -> BenchmarkReport:
     return BenchmarkReport(
         run_id=run_id,
@@ -45,7 +47,7 @@ def report(
         ),
         case_scores=(
             CaseScore(
-                case_id="case-1",
+                case_id=case_id,
                 eligible=True,
                 precision=precision,
                 recall=recall,
@@ -59,6 +61,8 @@ def report(
         overall_precision=precision,
         overall_recall=recall,
         decision=decision,
+        input_fingerprint=fingerprint,
+        evaluated_case_ids=(case_id,),
     )
 
 
@@ -169,6 +173,36 @@ def test_changed_dataset_or_rubric_demands_comparator_reevaluation(
     assert reason_fragment in " ".join(result.reasons).lower()
 
 
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        report(
+            "different-cases",
+            precision=1,
+            recall=1,
+            evidence=1,
+            case_id="case-2",
+        ),
+        report(
+            "different-fingerprint",
+            precision=1,
+            recall=1,
+            evidence=1,
+            fingerprint="mutated-inputs",
+        ),
+    ],
+)
+def test_changed_case_set_or_content_fingerprint_demands_reevaluation(
+    candidate: BenchmarkReport,
+) -> None:
+    baseline = report("baseline", precision=1, recall=1, evidence=1)
+
+    result = decide_regression(candidate, baseline, calibrated_thresholds())
+
+    assert result.decision == ReleaseDecision.REVIEW_REQUIRED
+    assert result.requires_reevaluation is True
+
+
 def test_version_change_does_not_downgrade_a_critical_block() -> None:
     baseline = report("baseline", precision=1, recall=1, evidence=1)
     candidate = report(
@@ -198,14 +232,16 @@ def test_baseline_changes_only_for_matching_human_approval() -> None:
         reviewed_evidence=("regression-decision:PASS",),
     )
     approved = rejected.model_copy(update={"status": BaselineApprovalStatus.APPROVED})
+    regression = decide_regression(candidate, current, calibrated_thresholds())
 
-    assert promote_baseline(current, candidate, rejected) is current
-    assert promote_baseline(current, candidate, approved) is candidate
+    assert promote_baseline(current, candidate, rejected, regression=regression) is current
+    assert promote_baseline(current, candidate, approved, regression=regression) is candidate
     with pytest.raises(ValueError, match="candidate run"):
         promote_baseline(
             current,
             candidate,
             approved.model_copy(update={"candidate_run_id": "different-run"}),
+            regression=regression,
         )
 
 
@@ -228,7 +264,28 @@ def test_critical_approved_exception_cannot_be_promoted() -> None:
     )
 
     with pytest.raises(ValueError, match="critical"):
-        promote_baseline(current, candidate, approval)
+        promote_baseline(
+            current,
+            candidate,
+            approval,
+            regression=decide_regression(candidate, current, calibrated_thresholds()),
+        )
+
+
+def test_regression_blocked_candidate_cannot_be_promoted_by_ordinary_approval() -> None:
+    current = report("baseline", precision=0.99, recall=0.99, evidence=0.99)
+    candidate = report("candidate", precision=0.90, recall=0.99, evidence=0.99)
+    regression = decide_regression(candidate, current, calibrated_thresholds())
+    approval = BaselineApproval(
+        candidate_run_id="candidate",
+        status=BaselineApprovalStatus.APPROVED,
+        reviewer="QA lead",
+        reviewed_at=datetime.now(UTC),
+        reviewed_evidence=("regression-decision:BLOCKED",),
+    )
+
+    with pytest.raises(ValueError, match="regression"):
+        promote_baseline(current, candidate, approval, regression=regression)
 
 
 def test_illustrative_targets_prompt_review_but_do_not_claim_calibrated_block() -> None:

@@ -4,3 +4,4 @@ representative_case_ids:
   - conflict
   - missing_rule
 max_budget_usd: 5.0
+max_case_cost_usd: 2.5

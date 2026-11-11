@@ -78,8 +78,10 @@ async def test_tier3_repeats_aggregate_cost_time_and_case_linked_failures(
             report("repeat-2", recall=0.5, decision=ReleaseDecision.REVIEW_REQUIRED),
         ]
     )
+    budget_ids: list[int] = []
 
-    async def fake_tier3_once(_dataset_version: str) -> BenchmarkReport:
+    async def fake_tier3_once(_dataset_version: str, budget: object) -> BenchmarkReport:
+        budget_ids.append(id(budget))
         return next(outputs)
 
     monkeypatch.setattr("quality_platform.evaluation.runner._run_tier3_once", fake_tier3_once)
@@ -97,8 +99,26 @@ async def test_tier3_repeats_aggregate_cost_time_and_case_linked_failures(
     assert result.manual_baseline_minutes == 30
     assert result.failure_case_ids == ("conflict",)
     assert result.decision == ReleaseDecision.REVIEW_REQUIRED
+    assert len(set(budget_ids)) == 1
     assert "INSUFFICIENT_REAL_CASES" in result.readiness_labels
     assert "UNCALIBRATED_GATES" in result.readiness_labels
+
+
+@pytest.mark.asyncio
+async def test_tier3_readiness_blockers_cannot_leave_a_pass_decision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_tier3_once(_dataset_version: str, _budget: object) -> BenchmarkReport:
+        return report("repeat-1")
+
+    monkeypatch.setattr("quality_platform.evaluation.runner._run_tier3_once", fake_tier3_once)
+    monkeypatch.setenv("QA_TIER3_BUDGET_CONFIRMED", "yes")
+    monkeypatch.setenv("QA_TIER3_MAX_COST_USD", "1.0")
+
+    result = await run_full_benchmark("v0.1", repeats=1)
+
+    assert result.readiness_labels
+    assert result.decision == ReleaseDecision.REVIEW_REQUIRED
 
 
 @pytest.mark.asyncio
@@ -113,6 +133,27 @@ async def test_tier3_never_runs_without_explicit_budget_or_with_unbounded_repeat
     monkeypatch.setenv("QA_TIER3_MAX_COST_USD", "1.0")
     with pytest.raises(LiveBenchmarkConfigurationError, match="repeats"):
         await run_full_benchmark("v0.1", repeats=6)
+
+
+@pytest.mark.asyncio
+async def test_tier3_rejects_nonfinite_budget_before_any_provider_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invoked = False
+
+    async def forbidden(_dataset_version: str, _budget: object) -> BenchmarkReport:
+        nonlocal invoked
+        invoked = True
+        return report("forbidden")
+
+    monkeypatch.setattr("quality_platform.evaluation.runner._run_tier3_once", forbidden)
+    monkeypatch.setenv("QA_TIER3_BUDGET_CONFIRMED", "yes")
+    monkeypatch.setenv("QA_TIER3_MAX_COST_USD", "nan")
+
+    with pytest.raises(LiveBenchmarkConfigurationError, match="finite"):
+        await run_full_benchmark("v0.1", repeats=1)
+
+    assert invoked is False
 
 
 def human_review(**updates: object) -> HumanReview:

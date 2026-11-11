@@ -77,18 +77,21 @@ def score_traceability(gold: GoldCase, observed: Artifact) -> TraceabilityScore:
         reference in supported_references for reference in observed.source_references
     )
     unsupported_count = len(observed.source_references) - supported_count
-    evidence_accuracy = (
-        supported_count / len(observed.source_references)
-        if observed.source_references
-        else float(not supported_references)
-    )
+    evidence_denominator = max(len(observed.source_references), len(supported_references))
+    evidence_accuracy = supported_count / evidence_denominator if evidence_denominator else 1.0
     return TraceabilityScore(
         requirement_coverage=(len(matched) / len(gold.requirements) if gold.requirements else 1.0),
         evidence_accuracy=evidence_accuracy,
         missing_requirement_ids=missing,
         unexpected_requirement_ids=tuple(unexpected),
         unsupported_source_count=unsupported_count,
-        review_required=bool(missing or unexpected or unsupported_count or semantic_matches),
+        review_required=bool(
+            missing
+            or unexpected
+            or unsupported_count
+            or semantic_matches
+            or supported_count < len(supported_references)
+        ),
     )
 
 
@@ -116,7 +119,13 @@ def evaluate_case(case: BenchmarkCase, observed: EvaluationOutput) -> CaseScore:
                 gold
                 for gold in case.gold.expected_items
                 if gold.kind == item.kind
-                and item.id in (gold.id, *gold.semantic_alternatives)
+                and (
+                    item.id in (gold.id, *gold.semantic_alternatives)
+                    or (
+                        set(item.source_references) == set(gold.source_references)
+                        and bool(gold.source_references)
+                    )
+                )
                 and gold.id not in matched
             ),
             None,

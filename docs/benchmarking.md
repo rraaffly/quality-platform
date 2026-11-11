@@ -48,14 +48,26 @@ uv run qa-orchestrator benchmark run \
   --output-directory benchmarks/reports/tier3
 ```
 
-`benchmarks/configs/tier3.yaml` bounds repeats and the maximum configured budget. The runner stops
-when aggregate observed cost exceeds the user-confirmed cap. JSON and Markdown reports record:
+`benchmarks/configs/tier3.yaml` bounds repeats, total cost, and the conservative maximum cost of one
+case. One shared ledger reserves that per-case bound before every provider call across all repeats,
+so a call is never started when it could exceed the user-confirmed cap. Non-finite prices, budgets,
+and productivity values are rejected. JSON and Markdown reports record:
 
 - per-case precision, recall, evidence accuracy, findings, and critical violations;
 - every failed case ID, so aggregate scores cannot hide the failing sample;
 - provider/model usage, tokens, cost, repeats, and wall-clock latency;
 - active QA review time and the manual comparison time supplied for the equivalent task;
 - readiness labels describing missing evidence.
+
+Tier 3 selects every case whose gold is `APPROVED`; `representative_case_ids` applies only to Tier 2.
+It uses the same Analyst schema, prompt rules, and evidence/conflict validators as the production
+agent. If an approved task type has no production evaluation adapter, the full run fails explicitly
+instead of producing an incomplete readiness report.
+
+Every live input snapshot is confined to its synthetic or real-world dataset directory and verified
+against the SHA-256 pinned in the manifest before its contents enter a prompt. Reports carry the
+verified input fingerprint and exact evaluated case IDs; changing either requires comparator
+re-evaluation before baseline promotion.
 
 The productivity comparison is valid only when manual and AI-assisted runs use equivalent source
 documents, requested artifacts, reviewer expectations, and stopping conditions. Count all active QA
@@ -73,7 +85,8 @@ The bundled `v0.1` dataset does not contain the planned minimum of approved real
 
 These labels force `REVIEW_REQUIRED`; they must not be removed merely to obtain a passing release.
 Private real-world inputs belong in the Git-ignored `benchmarks/datasets/real_world/` area and may
-enter scoring only with immutable human-approved gold metadata.
+enter scoring only with immutable human-approved gold metadata. A versioned real-world manifest is
+loaded only when the matching `benchmarks/ground_truth/real_world/` manifest is also present.
 
 ## Release readiness
 

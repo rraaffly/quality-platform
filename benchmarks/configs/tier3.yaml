@@ -7,6 +7,7 @@ representative_case_ids:
   - approval_bypass
   - targeted_revision
 max_budget_usd: 20.0
+max_case_cost_usd: 2.0
 agent_role: analyst
 max_repeats: 5
 minimum_approved_real_cases: 12

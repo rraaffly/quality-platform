@@ -97,6 +97,20 @@ def test_traceability_scores_requirement_coverage_and_evidence() -> None:
     assert score.review_required is True
 
 
+def test_traceability_without_required_evidence_always_requires_review() -> None:
+    score = score_traceability(
+        GoldCase(
+            case_id="missing-evidence",
+            requirements=(GoldRequirement(id="REQ-1", source_references=(source("BRD-1", 3),)),),
+        ),
+        Artifact(id="PLAN-1", requirement_ids=("REQ-1",), source_references=()),
+    )
+
+    assert score.requirement_coverage == 1
+    assert score.evidence_accuracy == 0
+    assert score.review_required is True
+
+
 def test_conflict_is_scored_as_one_case_with_all_required_evidence() -> None:
     brd = source("BRD-1", 3)
     srs = source("SRS-1", 3)

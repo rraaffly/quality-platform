@@ -173,16 +173,21 @@ def _check_numeric_conflicts(
             ),
             None,
         )
-        resolved_requirement = resolved is not None and any(
-            requirement.readiness == RequirementReadiness.VALIDATED
-            and _normalized(requirement.statement) == _normalized(resolved.resolution or "")
+        affected_validated = tuple(
+            requirement
+            for requirement in draft.requirements
+            if requirement.readiness == RequirementReadiness.VALIDATED
             and any(
                 (reference.document_id, reference.start_line, reference.end_line) in required
                 for reference in requirement.source_references
             )
-            for requirement in draft.requirements
         )
-        if resolved_requirement:
+        if resolved is not None and affected_validated:
+            if any(
+                _normalized(requirement.statement) != _normalized(resolved.resolution or "")
+                for requirement in affected_validated
+            ):
+                raise ValueError("resolved numeric conflict has a contradictory requirement")
             continue
         if not reported:
             raise ValueError("unreported numeric conflict across documents")
@@ -195,6 +200,54 @@ def _check_numeric_conflicts(
             for requirement in draft.requirements
         ):
             raise ValueError("numeric conflict cannot produce a validated requirement")
+
+
+def build_analysis_instruction(
+    lines_by_id: dict[str, list[str]],
+    resolved_conflicts: tuple[Clarification, ...] = (),
+) -> str:
+    inputs = [
+        f"Document {document_id}:\n"
+        + "\n".join(f"{index}: {line}" for index, line in enumerate(lines, 1))
+        for document_id, lines in lines_by_id.items()
+    ]
+    resolved_rules = "\n".join(
+        f"- {item.id}: {item.resolution} (answer source: {item.answers[-1].source})"
+        for item in resolved_conflicts
+    )
+    return (
+        "Extract requirements with exact document, line references, and source quotes. "
+        "Mark a requirement VALIDATED only when its statement occurs verbatim in a cited quote. "
+        "Otherwise leave it EXTRACTED or BLOCKED. Identify every test-relevant "
+        "missing rule, ambiguity, contradiction, and cross-document conflict. There is no source hierarchy. "
+        "Never choose a side of an unresolved conflict or invent an expected result. Ask specific "
+        "questions for unresolved rules. A human-reviewed resolved rule listed below may revalidate "
+        "the affected requirement only when the statement exactly matches that rule and still has "
+        "verbatim document evidence. Mark other affected requirements BLOCKED; independent clear "
+        "requirements may be VALIDATED for draft work only. Return all questions in one batch.\n\n"
+        "Resolved stakeholder rules:\n"
+        + (resolved_rules or "- none")
+        + "\n\n"
+        + "\n\n".join(inputs)
+    )
+
+
+def validate_analysis_draft(
+    draft: RequirementAnalysisDraft,
+    lines_by_id: dict[str, list[str]],
+    resolved_conflicts: tuple[Clarification, ...] = (),
+) -> None:
+    for requirement in draft.requirements:
+        for reference in requirement.source_references:
+            _check_reference(reference, lines_by_id)
+        for reference, quote in zip(
+            requirement.source_references, requirement.source_quotes, strict=False
+        ):
+            _check_quote(quote, reference, lines_by_id)
+    for item in draft.clarifications:
+        for reference in item.source_references:
+            _check_reference(reference, lines_by_id)
+    _check_numeric_conflicts(draft, lines_by_id, resolved_conflicts)
 
 
 def _resolved_conflicts(context: AgentContext) -> tuple[Clarification, ...]:
@@ -224,7 +277,6 @@ async def analyze_documents(
     if workflow.project_id != context.project_id:
         raise PermissionError("workflow belongs to another project")
     lines_by_id: dict[str, list[str]] = {}
-    inputs: list[str] = []
     for source_id in source_ids:
         if source_id not in workflow.source_snapshot_ids:
             raise ValueError("source is outside workflow baseline")
@@ -242,28 +294,8 @@ async def analyze_documents(
         if len(lines) != document.line_count:
             raise ValueError("source line count mismatch")
         lines_by_id[source_id] = lines
-        numbered = "\n".join(f"{index}: {line}" for index, line in enumerate(lines, 1))
-        inputs.append(f"Document {source_id} ({document.input_type}):\n{numbered}")
     resolved_conflicts = _resolved_conflicts(context)
-    resolved_rules = "\n".join(
-        f"- {item.id}: {item.resolution} (answer source: {item.answers[-1].source})"
-        for item in resolved_conflicts
-    )
-    instruction = (
-        "Extract requirements with exact document, line references, and source quotes. "
-        "Mark a requirement VALIDATED only when its statement occurs verbatim in a cited quote. "
-        "Otherwise leave it EXTRACTED or BLOCKED. Identify every test-relevant "
-        "missing rule, ambiguity, contradiction, and cross-document conflict. There is no source hierarchy. "
-        "Never choose a side of an unresolved conflict or invent an expected result. Ask specific "
-        "questions for unresolved rules. A human-reviewed resolved rule listed below may revalidate "
-        "the affected requirement only when the statement exactly matches that rule and still has "
-        "verbatim document evidence. Mark other affected requirements BLOCKED; independent clear "
-        "requirements may be VALIDATED for draft work only. Return all questions in one batch.\n\n"
-        "Resolved stakeholder rules:\n"
-        + (resolved_rules or "- none")
-        + "\n\n"
-        + "\n\n".join(inputs)
-    )
+    instruction = build_analysis_instruction(lines_by_id, resolved_conflicts)
     result = await generate_structured(
         AgentRole.ANALYST,
         [HumanMessage(content=instruction)],
@@ -272,15 +304,5 @@ async def analyze_documents(
         factory=context.model_factory,
     )
     draft = RequirementAnalysisDraft.model_validate(result.model_dump())
-    for requirement in draft.requirements:
-        for reference in requirement.source_references:
-            _check_reference(reference, lines_by_id)
-        for reference, quote in zip(
-            requirement.source_references, requirement.source_quotes, strict=False
-        ):
-            _check_quote(quote, reference, lines_by_id)
-    for item in draft.clarifications:
-        for reference in item.source_references:
-            _check_reference(reference, lines_by_id)
-    _check_numeric_conflicts(draft, lines_by_id, resolved_conflicts)
+    validate_analysis_draft(draft, lines_by_id, resolved_conflicts)
     return draft

@@ -191,6 +191,81 @@ async def test_resolved_numeric_conflict_allows_exact_analyst_revalidation(
 
 
 @pytest.mark.asyncio
+async def test_resolved_numeric_conflict_rejects_an_additional_contradictory_requirement(
+    tmp_path: Path,
+) -> None:
+    repo = QaRepositories(open_database(tmp_path / "qa.sqlite"))
+    repo.create_project(ProjectRecord(id="P1", name="Login", root=tmp_path))
+    repo.create_workflow(
+        WorkflowRecord(
+            id="W1",
+            project_id="P1",
+            goal="Resolve login threshold",
+            thread_id="T1",
+            source_snapshot_ids=("BRD", "SRS"),
+        )
+    )
+    chosen = "The account locks after 3 failed attempts."
+    rejected = "The account locks after 5 failed attempts."
+    save_source(repo, tmp_path, "P1", "BRD", f"# Login\n\n{chosen}\n")
+    save_source(repo, tmp_path, "P1", "SRS", f"# Login\n\n{rejected}\n")
+    question = Clarification(
+        id="C-LOCKOUT",
+        issue_type=ClarificationIssueType.CROSS_DOCUMENT_CONFLICT,
+        question="Which lockout threshold applies?",
+        source_references=(source("BRD"), source("SRS")),
+        affected_requirement_ids=("REQ-LOCKOUT",),
+    )
+
+    async def accept(_item: Clarification) -> ClarificationAssessment:
+        return ClarificationAssessment(sufficient=True, reason="Chosen", resolved_rule=chosen)
+
+    service = ClarificationService(repo, project_id="P1", workflow_id="W1", reviewer=accept)
+    service.create_batch([question])
+    service.record_stakeholder_answer(
+        question.id,
+        StakeholderAnswer(
+            author="Product Owner",
+            text=chosen,
+            recorded_by="QA",
+            source="decision meeting",
+        ),
+    )
+    await service.validate_clarifications("W1")
+    draft = RequirementAnalysisDraft(
+        requirements=(
+            Requirement(
+                id="REQ-LOCKOUT",
+                version=2,
+                statement=chosen,
+                source_references=(source("BRD"),),
+                source_quotes=(chosen,),
+                readiness=RequirementReadiness.VALIDATED,
+            ),
+            Requirement(
+                id="REQ-CONTRADICTORY",
+                version=1,
+                statement=rejected,
+                source_references=(source("SRS"),),
+                source_quotes=(rejected,),
+                readiness=RequirementReadiness.VALIDATED,
+            ),
+        ),
+        clarifications=(),
+    )
+    context = AgentContext(
+        project_id="P1",
+        workflow_id="W1",
+        repo=repo,
+        models=model_registry(tmp_path),
+        model_factory=lambda _spec: FakeModel(draft),
+    )
+
+    with pytest.raises(ValueError, match="resolved numeric conflict"):
+        await analyze_documents(context, ["BRD", "SRS"])
+
+
+@pytest.mark.asyncio
 async def test_checkpoint_resume_approves_only_the_active_project_artifact(
     tmp_path: Path,
 ) -> None:
