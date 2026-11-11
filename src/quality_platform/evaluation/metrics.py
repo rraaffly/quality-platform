@@ -1,10 +1,98 @@
+from quality_platform.domain.models import Requirement
 from quality_platform.evaluation.models import (
+    Artifact,
     BenchmarkCase,
     CaseScore,
     EvaluationOutput,
+    ExtractionScore,
+    GoldCase,
+    GoldRequirement,
     GoldStatus,
     Severity,
+    TraceabilityScore,
 )
+
+
+def score_extraction(gold: list[GoldRequirement], observed: list[Requirement]) -> ExtractionScore:
+    matched: list[str] = []
+    review_required: list[str] = []
+    used_observed: set[int] = set()
+    for expected in gold:
+        match = next(
+            (
+                (index, item)
+                for index, item in enumerate(observed)
+                if index not in used_observed
+                and item.id in (expected.id, *expected.semantic_alternatives)
+            ),
+            None,
+        )
+        if match is None:
+            continue
+        index, item = match
+        used_observed.add(index)
+        matched.append(expected.id)
+        if item.id != expected.id:
+            review_required.append(expected.id)
+
+    matched_set = set(matched)
+    missed = tuple(item.id for item in gold if item.id not in matched_set)
+    unexpected = tuple(item.id for index, item in enumerate(observed) if index not in used_observed)
+    return ExtractionScore(
+        matched_requirement_ids=tuple(matched),
+        missed_requirement_ids=missed,
+        unexpected_requirement_ids=unexpected,
+        review_required_requirement_ids=tuple(review_required),
+        precision=len(matched) / len(observed) if observed else float(not gold),
+        recall=len(matched) / len(gold) if gold else 1.0,
+    )
+
+
+def score_traceability(gold: GoldCase, observed: Artifact) -> TraceabilityScore:
+    matched: set[str] = set()
+    semantic_matches: set[str] = set()
+    unexpected: list[str] = []
+    for requirement_id in observed.requirement_ids:
+        expected = next(
+            (
+                item
+                for item in gold.requirements
+                if item.id not in matched
+                and requirement_id in (item.id, *item.semantic_alternatives)
+            ),
+            None,
+        )
+        if expected is None:
+            unexpected.append(requirement_id)
+            continue
+        matched.add(expected.id)
+        if requirement_id != expected.id:
+            semantic_matches.add(expected.id)
+
+    missing = tuple(item.id for item in gold.requirements if item.id not in matched)
+    supported_references = {
+        reference for item in gold.requirements for reference in item.source_references
+    }
+    supported_count = sum(
+        reference in supported_references for reference in observed.source_references
+    )
+    unsupported_count = len(observed.source_references) - supported_count
+    evidence_denominator = max(len(observed.source_references), len(supported_references))
+    evidence_accuracy = supported_count / evidence_denominator if evidence_denominator else 1.0
+    return TraceabilityScore(
+        requirement_coverage=(len(matched) / len(gold.requirements) if gold.requirements else 1.0),
+        evidence_accuracy=evidence_accuracy,
+        missing_requirement_ids=missing,
+        unexpected_requirement_ids=tuple(unexpected),
+        unsupported_source_count=unsupported_count,
+        review_required=bool(
+            missing
+            or unexpected
+            or unsupported_count
+            or semantic_matches
+            or supported_count < len(supported_references)
+        ),
+    )
 
 
 def evaluate_case(case: BenchmarkCase, observed: EvaluationOutput) -> CaseScore:
@@ -31,7 +119,13 @@ def evaluate_case(case: BenchmarkCase, observed: EvaluationOutput) -> CaseScore:
                 gold
                 for gold in case.gold.expected_items
                 if gold.kind == item.kind
-                and item.id in (gold.id, *gold.semantic_alternatives)
+                and (
+                    item.id in (gold.id, *gold.semantic_alternatives)
+                    or (
+                        set(item.source_references) == set(gold.source_references)
+                        and bool(gold.source_references)
+                    )
+                )
                 and gold.id not in matched
             ),
             None,

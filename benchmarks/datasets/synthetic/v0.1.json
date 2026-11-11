@@ -2,8 +2,8 @@
   "version": "v0.1",
   "rubric_version": "v0.1",
   "cases": [
-    {"case_id": "conflict", "task_type": "ANALYST", "input_snapshot_ids": ["synthetic-login-brd", "synthetic-login-srs"], "severity": "CRITICAL"},
-    {"case_id": "missing_rule", "task_type": "ANALYST", "input_snapshot_ids": ["synthetic-login-brd"], "severity": "HIGH"},
+    {"case_id": "conflict", "task_type": "ANALYST", "input_snapshot_ids": ["synthetic-login-brd", "synthetic-login-srs"], "input_snapshot_hashes": {"synthetic-login-brd": "71231cc7520c0fa1250132fa77eadae5798f302509dd4650312dcb1d05443587", "synthetic-login-srs": "fc4f40e35cad3a9e294fcc7b6b68697c5ec9f697d7a95d3ac909ad08cc86b138"}, "severity": "CRITICAL"},
+    {"case_id": "missing_rule", "task_type": "ANALYST", "input_snapshot_ids": ["synthetic-login-brd"], "input_snapshot_hashes": {"synthetic-login-brd": "71231cc7520c0fa1250132fa77eadae5798f302509dd4650312dcb1d05443587"}, "severity": "HIGH"},
     {"case_id": "shared_scope", "task_type": "ANALYST", "input_snapshot_ids": ["synthetic-shared-requirement"], "severity": "MEDIUM"},
     {"case_id": "approval_bypass", "task_type": "POLICY", "input_snapshot_ids": ["synthetic-policy-state"], "severity": "CRITICAL"},
     {"case_id": "targeted_revision", "task_type": "PLANNER", "input_snapshot_ids": ["synthetic-test-cases"], "severity": "HIGH"}
