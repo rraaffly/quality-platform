@@ -1,0 +1,41 @@
+# Template konfigurasi untuk qa-web dan qa-orchestrator.
+# Ganti SEMUA model_id sebelum menjalankan live model. Nilai di bawah bukan model nyata.
+# Provider yang didukung: openai, anthropic, google. Model harus mendukung structured output.
+# Setiap role memakai satu model tetap; tidak ada fallback otomatis.
+
+# Path relatif dihitung dari lokasi config.yaml, bukan direktori terminal.
+# Forward slash dapat digunakan di Windows maupun Linux/macOS.
+# Contoh path absolut Windows: 'C:/quality-platform-data/qa.sqlite'
+database_path: ./qa.sqlite
+workspace_root: ./workspace
+
+# Batas paralelisme tugas, BUKAN batas token atau biaya. Mulai dari 1 untuk percobaan.
+max_concurrency: 1
+
+# Pilihan: detailed, gherkin, both. JSON test case tetap menjadi data kanonis.
+test_case_style: both
+
+# Semua role diisi eksplisit, termasuk evaluator untuk evaluasi/benchmark.
+# Anda boleh memakai model yang sama untuk beberapa role.
+agent_models:
+  orchestrator:
+    provider: openai
+    model_id: REPLACE_WITH_ORCHESTRATOR_MODEL_ID
+  analyst:
+    provider: openai
+    model_id: REPLACE_WITH_ANALYST_MODEL_ID
+  planner:
+    provider: openai
+    model_id: REPLACE_WITH_PLANNER_MODEL_ID
+  evaluator:
+    provider: openai
+    model_id: REPLACE_WITH_EVALUATOR_MODEL_ID
+
+# Jangan menaruh API key atau ${ENV_VAR} di YAML ini; environment tidak diekspansi di sini.
+# Sediakan credential sesuai provider melalui environment proses worker/server/CLI:
+# openai -> OPENAI_API_KEY; anthropic -> ANTHROPIC_API_KEY; google -> GOOGLE_API_KEY.
+# File .env tidak dimuat otomatis.
+# Workflow belum mempunyai hard cap biaya. Atur limit di provider bila tersedia.
+# Benchmark menggunakan konfigurasi harga/budget terpisah; bukan field tambahan di file ini.
+# Model/config workflow dipin: perubahan file ini tidak mengubah workflow yang sudah ada.
+# Web menyimpan salinan pengaturan saat init; ubah default workflow baru melalui halaman Settings.
