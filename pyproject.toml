@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.22.1",
+    "filelock>=4.2.10",
     "langchain-anthropic>=1.7.10",
     "langchain-google-genai>=4.4.3",
     "langchain-openai>=1.7.4",

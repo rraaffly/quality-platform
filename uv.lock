@@ -1545,6 +1545,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
+    { name = "filelock" },
     { name = "langchain-anthropic" },
     { name = "langchain-google-genai" },
     { name = "langchain-openai" },
@@ -1571,6 +1572,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
+    { name = "filelock", specifier = ">=4.2.10" },
     { name = "langchain-anthropic", specifier = ">=1.7.10" },
     { name = "langchain-google-genai", specifier = ">=4.4.3" },
     { name = "langchain-openai", specifier = ">=1.7.4" },

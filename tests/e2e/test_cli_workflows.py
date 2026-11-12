@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -188,6 +190,27 @@ def test_cli_exposes_complete_mvp_command_surface() -> None:
         output = invoke(group, "--help")
         for command in commands:
             assert command in output
+
+
+def test_cli_starts_without_unix_only_fcntl() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; sys.modules['fcntl'] = None; "
+                "from quality_platform import main; "
+                "sys.argv = ['qa-orchestrator', 'benchmark', '--help']; main()"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "promote-baseline" in result.stdout
+    assert "capture-workflow-evidence" in result.stdout
 
 
 def test_raw_markdown_to_reviewed_cases_revision_and_automatic_impact(

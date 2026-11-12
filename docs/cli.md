@@ -3,6 +3,66 @@
 Run `uv run qa-orchestrator --help` for the current command surface. Every command acts on explicit
 local paths; there is no daemon or background worker.
 
+## Live model settings without Python changes
+
+The current configuration surface is split between YAML, environment variables and CLI flags:
+
+| Setting | Where to configure it |
+| --- | --- |
+| Provider/model per role | `agent_models.<role>.provider` and `model_id` in the application YAML passed with `--config`. Providers: `openai`, `anthropic`, `google`. |
+| API keys | Process environment: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`. Never put keys in model YAML. `.env` is not automatically loaded. |
+| Parallel workflow tasks | `max_concurrency` in application YAML; this is not a token or monetary cap. |
+| Candidate input/output price | Benchmark flags `--input-usd-per-million` and `--output-usd-per-million`, or `QA_TIER2_INPUT_USD_PER_MILLION` / `QA_TIER2_OUTPUT_USD_PER_MILLION` (use `TIER3` for Tier 3). |
+| Evaluator input/output price | `QA_TIER2_EVALUATOR_INPUT_USD_PER_MILLION` and `QA_TIER2_EVALUATOR_OUTPUT_USD_PER_MILLION` (use `TIER3` for Tier 3). |
+| Mixed-task Tier 3 prices | `QA_TIER3_ANALYST_INPUT_USD_PER_MILLION`, `QA_TIER3_ANALYST_OUTPUT_USD_PER_MILLION`, and corresponding `QA_TIER3_PLANNER_*` variables. |
+| Benchmark run budget | `--confirm-budget --max-cost-usd`; cost cap must also fit the tier YAML limit. |
+| Reservation/case selection/repeat limits | `benchmarks/configs/tier2.yaml` or `tier3.yaml`: `max_budget_usd`, `max_case_cost_usd` per provider call, representative case IDs, and Tier 3 `max_repeats`. |
+| Benchmark size | `--max-cases` for Tier 2; `--repeats` for Tier 3. Tier 3 uses all supported approved cases, not the Tier 2 case limit. |
+
+Prices are human-declared USD per **one million tokens**, not fetched from the provider. They must
+match the selected models; do not reuse another model's rates. YAML limit changes are configuration
+changes, not Python edits, but raising a budget still requires an explicit decision. Tier config
+files are currently read from the repository's `benchmarks/configs/`, not selected by `--config`.
+
+There is no application YAML field/CLI flag yet for temperature, maximum output tokens, timeout,
+retry policy or custom API base URL. Unknown fields are rejected, not silently applied. These
+require exposing supported options in the application once before they can be managed via config.
+Model/config changes require a new workflow; existing workflows pin the original configuration.
+
+**`workflow run` has no application cost cap yet.** Benchmark reservations and post-call usage
+checks also do not enforce a provider billing cap: an over-budget response can already have incurred
+cost before the application detects it. Set provider-side limits where available, start small and
+do not confuse concurrency with cost control.
+
+### Windows PowerShell
+
+After installing the updated dependencies with `uv sync --dev`, the CLI uses a cross-platform
+file lock for baseline promotion instead of importing Unix-only `fcntl`. Do not try to install
+`fcntl` on Windows. The Bash examples elsewhere in this document require adapting shell syntax.
+
+Read the API key privately into the current PowerShell process (not a persistent setting):
+
+```powershell
+$key = Read-Host "OPENAI_API_KEY" -AsSecureString
+$env:OPENAI_API_KEY = [System.Net.NetworkCredential]::new("", $key).Password
+Remove-Variable key
+```
+
+For a single-role Tier 2 run, declare the candidate and evaluator prices separately, then run:
+
+```powershell
+$inputRate = Read-Host "Candidate input USD per million tokens"
+$outputRate = Read-Host "Candidate output USD per million tokens"
+$env:QA_TIER2_EVALUATOR_INPUT_USD_PER_MILLION = Read-Host "Evaluator input USD per million tokens"
+$env:QA_TIER2_EVALUATOR_OUTPUT_USD_PER_MILLION = Read-Host "Evaluator output USD per million tokens"
+uv run qa-orchestrator benchmark run --tier 2 --dataset-version v0.1 --agent-role analyst --max-cases 1 --config .\config.yaml --input-usd-per-million $inputRate --output-usd-per-million $outputRate --confirm-budget --max-cost-usd 2.50 --output-directory .\benchmarks\reports\live
+```
+
+This command is **paid and optional**; `config.yaml` must already contain your selected model IDs.
+USD 2.50 covers the current one-case reservation (candidate plus evaluator), not an estimate of the
+actual bill. The bundled gold still needs semantic curation, so this is not production quality
+evidence. See [benchmarking.md](benchmarking.md) before interpreting the scores or promoting a baseline.
+
 ## Projects and workflows
 
 Create `config.yaml` first. Paths are relative to that file; use provider/model IDs you have

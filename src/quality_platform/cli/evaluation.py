@@ -1,12 +1,12 @@
 """Register on the existing benchmark Typer; all commands below are offline."""
 
-import fcntl
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
 import typer
+from filelock import FileLock
 from pydantic import TypeAdapter
 
 from quality_platform.evaluation.calibration import Review
@@ -228,8 +228,7 @@ def register_evaluation_commands(benchmark: typer.Typer) -> None:
         report = _read(candidate, BenchmarkReport)
         previous = _read(release, ReleaseReview)
         baseline_directory.mkdir(parents=True, exist_ok=True)
-        with (baseline_directory / ".promotion.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with FileLock(baseline_directory / ".promotion.lock"):
             baseline = load_baseline(baseline_directory)
             if previous.baseline_digest != (digest(baseline.report) if baseline else None):
                 raise typer.BadParameter("latest approved baseline changed; repeat release review")
