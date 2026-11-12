@@ -8,7 +8,9 @@ historis; perubahan batas produknya dicatat di [addendum web](superpowers/specs/
 ## Persiapan dan menjalankan layanan
 
 Web ditujukan untuk satu pemilik, satu mesin, SQLite lokal, dan satu worker pemilik hak tulis.
-Jalankan `uv sync --dev`, lalu siapkan YAML seperti pada [panduan CLI](cli.md#projects-and-workflows).
+Jalankan `uv sync --dev`, lalu sesuaikan [template config.yaml](../config.yaml): ganti seluruh
+placeholder `model_id` dan pilih provider yang memiliki credential Anda. Lihat juga
+[panduan CLI](cli.md#projects-and-workflows).
 Pilih provider/model secara eksplisit; tidak ada model default atau fallback otomatis. Gunakan
 path absolut untuk konfigurasi dan direktori state agar semua proses membuka instalasi yang sama.
 
