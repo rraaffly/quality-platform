@@ -1,4 +1,5 @@
 import hashlib
+import json
 import math
 import os
 import re
@@ -7,6 +8,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import pvariance
 from time import perf_counter
 from uuid import uuid4
 
@@ -21,6 +23,8 @@ from quality_platform.agents.analyst import (
 )
 from quality_platform.config.loader import load_config
 from quality_platform.domain.models import ClarificationIssueType
+from quality_platform.evaluation.adapters import invoke_planner
+from quality_platform.evaluation.judge import review_output
 from quality_platform.evaluation.metrics import evaluate_case
 from quality_platform.evaluation.models import (
     BenchmarkCase,
@@ -32,11 +36,15 @@ from quality_platform.evaluation.models import (
     GoldStatus,
     ModelUsage,
     ObservedItem,
+    ProductivityEvidence,
     ReleaseDecision,
+    RepeatResult,
     TaskType,
 )
 from quality_platform.evaluation.registry import load_dataset
 from quality_platform.evaluation.regression import ThresholdStatus, load_quality_thresholds
+from quality_platform.evaluation.reporting import fingerprint_outputs
+from quality_platform.evaluation.workflow_evidence import code_fingerprint
 from quality_platform.llm.model_factory import create_chat_model
 from quality_platform.llm.registry import AgentRole, ModelRegistry
 from quality_platform.llm.usage import capture_usage
@@ -193,13 +201,19 @@ async def _invoke_live_case(
     input_rate: float,
     output_rate: float,
 ) -> tuple[EvaluationOutput, ModelUsage]:
+    expected_role = {TaskType.ANALYST: AgentRole.ANALYST, TaskType.PLANNER: AgentRole.PLANNER}.get(
+        case.task_type
+    )
+    if role != expected_role:
+        raise LiveBenchmarkConfigurationError(
+            f"no production evaluation adapter for {case.task_type.value} with role {role.value}"
+        )
     spec = registry.get(role)
     model = create_chat_model(spec)
-    if role != AgentRole.ANALYST or case.task_type != TaskType.ANALYST:
-        raise LiveBenchmarkConfigurationError(
-            f"Tier 3 has no production evaluation adapter for {case.task_type.value}"
-        )
     lines_by_id = _case_lines(root, case)
+    if role == AgentRole.PLANNER:
+        output, raw = await invoke_planner(case, lines_by_id, registry, model)
+        return output, _usage_record(role, registry, raw, input_rate, output_rate)
     structured = model.with_structured_output(RequirementAnalysisDraft, include_raw=True)
     prompt = build_analysis_instruction(lines_by_id)
     result = await structured.ainvoke([HumanMessage(content=prompt)])
@@ -212,10 +226,13 @@ async def _invoke_live_case(
         ClarificationIssueType.MISSING_RULE: "GAP",
     }
     observed = EvaluationOutput(
+        policy_observation_complete=False,
         observed_items=tuple(
             ObservedItem(
                 id=requirement.id,
                 kind="REQUIREMENT",
+                content=requirement.statement,
+                semantic_context=requirement.model_dump_json(),
                 source_references=requirement.source_references,
             )
             for requirement in draft.requirements
@@ -225,17 +242,40 @@ async def _invoke_live_case(
             ObservedItem(
                 id=item.id,
                 kind=kind_by_issue.get(item.issue_type, item.issue_type.value),
+                content=item.question,
+                semantic_context=json.dumps(
+                    {
+                        "clarification": item.model_dump(mode="json"),
+                        "affected_requirements": [
+                            requirement.model_dump(mode="json")
+                            for requirement in draft.requirements
+                            if requirement.id in item.affected_requirement_ids
+                        ],
+                    },
+                    sort_keys=True,
+                ),
                 source_references=item.source_references,
             )
             for item in draft.clarifications
-        )
+        ),
     )
     raw_message = result.get("raw")
     if not isinstance(raw_message, AIMessage):
         raise TypeError(f"live benchmark case {case.case_id} omitted usage metadata")
+    return observed, _usage_record(role, registry, raw_message, input_rate, output_rate)
+
+
+def _usage_record(
+    role: AgentRole,
+    registry: ModelRegistry,
+    raw_message: AIMessage,
+    input_rate: float,
+    output_rate: float,
+) -> ModelUsage:
+    spec = registry.get(role)
     captured = capture_usage(role, spec, raw_message)
     cost = (captured.input_tokens * input_rate + captured.output_tokens * output_rate) / 1_000_000
-    return observed, ModelUsage(
+    return ModelUsage(
         **captured.model_dump(),
         cost_usd=round(cost, 10),
     )
@@ -283,6 +323,7 @@ async def _run_configured_benchmark(
     root = _repository_root()
     cost_limit = _confirmed_cost_limit(config, environment_prefix)
     input_rate, output_rate = _token_rates(environment_prefix)
+    evaluator_input_rate, evaluator_output_rate = _token_rates(environment_prefix + "_EVALUATOR")
     app_config_path = os.getenv("QUALITY_PLATFORM_CONFIG")
     if not app_config_path:
         raise LiveBenchmarkConfigurationError("QUALITY_PLATFORM_CONFIG is required")
@@ -301,20 +342,55 @@ async def _run_configured_benchmark(
         selected = selected[:max_cases]
     if not selected:
         raise LiveBenchmarkConfigurationError("no approved representative cases match the role")
+    policy_cases = tuple(
+        case
+        for case in dataset.cases
+        if full_dataset
+        and case.gold.status == GoldStatus.APPROVED
+        and case.task_type == TaskType.POLICY
+    )
 
+    task_roles = {TaskType.ANALYST: AgentRole.ANALYST, TaskType.PLANNER: AgentRole.PLANNER}
+    roles = {task_roles[case.task_type] for case in selected}
+    rates_by_role = {
+        role: _token_rates(environment_prefix + "_" + role.value.upper())
+        if len(roles) > 1
+        else (input_rate, output_rate)
+        for role in roles
+    }
     ledger = budget or _BudgetLedger(limit_usd=cost_limit)
+    if ledger.reserved_usd + len(selected) * 2 * config.max_case_cost_usd > ledger.limit_usd:
+        raise LiveBenchmarkConfigurationError("budget cannot reserve candidate and evaluator calls")
+    documents = {case.case_id: _case_lines(root, case) for case in selected}
     outputs: dict[str, EvaluationOutput] = {}
     usage: list[ModelUsage] = []
     for case in selected:
         ledger.reserve(config.max_case_cost_usd)
+        ledger.reserve(config.max_case_cost_usd)
+        role = task_roles[case.task_type] if full_dataset else agent_role
+        case_input_rate, case_output_rate = rates_by_role[role]
         output, record = await _invoke_live_case(
-            case, agent_role, registry, root, input_rate, output_rate
+            case, role, registry, root, case_input_rate, case_output_rate
         )
-        outputs[case.case_id] = output
         usage.append(record)
         ledger.record(record.cost_usd, reserved_usd=config.max_case_cost_usd)
+        output, raw_review = await review_output(
+            case, output, documents[case.case_id], registry, create_chat_model
+        )
+        review_usage = _usage_record(
+            AgentRole.EVALUATOR, registry, raw_review, evaluator_input_rate, evaluator_output_rate
+        )
+        usage.append(review_usage)
+        ledger.record(review_usage.cost_usd, reserved_usd=config.max_case_cost_usd)
+        outputs[case.case_id] = output
 
-    rates = f"{input_rate:.10f}:{output_rate:.10f}".encode()
+    rates = json.dumps(
+        {
+            **{role.value: rate for role, rate in rates_by_role.items()},
+            "evaluator": (evaluator_input_rate, evaluator_output_rate),
+        },
+        sort_keys=True,
+    ).encode()
     config_hash = hashlib.sha256(config_raw + app_config_raw + rates).hexdigest()
     candidate = CandidateSnapshot(
         candidate_id=config.candidate_id,
@@ -323,14 +399,31 @@ async def _run_configured_benchmark(
         model_snapshot_id=registry.snapshot.id,
         prompt_snapshot_id=config.prompt_snapshot_id,
     )
-    subset = dataset.model_copy(update={"cases": selected})
+    subset = dataset.model_copy(
+        update={
+            "cases": selected,
+            "content_fingerprint": dataset.content_fingerprint
+            or hashlib.sha256(
+                dataset.model_dump_json(exclude={"content_fingerprint"}).encode()
+            ).hexdigest(),
+        }
+    )
     report = run_offline_suite(
         subset,
         lambda case: outputs[case.case_id],
         candidate=candidate,
         usage=tuple(usage),
     )
-    return report.model_copy(update={"excluded_count": len(dataset.cases) - len(selected)})
+    return report.model_copy(
+        update={
+            "excluded_count": len(dataset.cases) - len(selected) - len(policy_cases),
+            "policy_suite_tests": {case.case_id: case.policy_test_ids for case in policy_cases},
+            "readiness_labels": ("POLICY_SUITE_EVIDENCE_MISSING",) if policy_cases else (),
+            "decision": ReleaseDecision.REVIEW_REQUIRED
+            if policy_cases and report.decision == ReleaseDecision.PASS
+            else report.decision,
+        }
+    )
 
 
 def _select_live_cases(
@@ -349,14 +442,17 @@ def _select_live_cases(
         unsupported = tuple(
             case.case_id
             for case in approved
-            if task_for_role is None or case.task_type != task_for_role
+            if (case.task_type == TaskType.PLANNER and not case.planner_requirements)
+            or (case.task_type == TaskType.POLICY and not case.policy_test_ids)
         )
         if unsupported:
             raise LiveBenchmarkConfigurationError(
-                "full benchmark has no production adapter for approved cases: "
+                "full benchmark requires Planner inputs or pinned POLICY test IDs for approved cases: "
                 + ", ".join(unsupported)
             )
-        return approved
+        return tuple(case for case in approved if case.task_type != TaskType.POLICY)
+    if task_for_role is None:
+        raise LiveBenchmarkConfigurationError("role has no production task adapter")
     return tuple(
         case
         for case in approved
@@ -391,6 +487,14 @@ async def run_full_benchmark(
     if repeats < 1 or repeats > config.max_repeats:
         raise LiveBenchmarkConfigurationError(f"repeats must be between 1 and {config.max_repeats}")
 
+    active_qa_minutes = _optional_nonnegative_number("QA_TIER3_ACTIVE_QA_MINUTES")
+    manual_baseline_minutes = _optional_nonnegative_number("QA_TIER3_MANUAL_BASELINE_MINUTES")
+    productivity_path = os.getenv("QA_TIER3_PRODUCTIVITY_EVIDENCE")
+    productivity = (
+        ProductivityEvidence.model_validate_json(Path(productivity_path).read_text())
+        if productivity_path
+        else None
+    )
     started = perf_counter()
     budget = _BudgetLedger(limit_usd=cost_limit)
     reports: list[BenchmarkReport] = []
@@ -413,16 +517,18 @@ async def run_full_benchmark(
         case.origin == "real_world" and case.gold.status == GoldStatus.APPROVED
         for case in dataset.cases
     )
-    labels: list[str] = []
+    labels: list[str] = list(reports[0].readiness_labels)
     if approved_real_cases < config.minimum_approved_real_cases:
         labels.append("INSUFFICIENT_REAL_CASES")
     gates = load_quality_thresholds(root / "benchmarks" / "rubrics" / "quality-gates.yaml")
     if gates.status != ThresholdStatus.CALIBRATED:
         labels.append("UNCALIBRATED_GATES")
-    active_qa_minutes = _optional_nonnegative_number("QA_TIER3_ACTIVE_QA_MINUTES")
-    manual_baseline_minutes = _optional_nonnegative_number("QA_TIER3_MANUAL_BASELINE_MINUTES")
-    if active_qa_minutes is None or manual_baseline_minutes is None:
+    if productivity is None:
         labels.append("PRODUCTIVITY_EVIDENCE_MISSING")
+    else:
+        active_qa_minutes = productivity.active_qa_minutes
+        manual_baseline_minutes = productivity.manual_baseline_minutes
+    labels.append("E2E_WORKFLOW_EVIDENCE_MISSING")
 
     first = reports[0]
     decision = _strictest_decision(reports)
@@ -452,7 +558,53 @@ async def run_full_benchmark(
         failure_case_ids=failures,
         readiness_labels=tuple(labels),
         input_fingerprint=first.input_fingerprint,
+        output_fingerprint=hashlib.sha256(
+            json.dumps([report.output_fingerprint for report in reports]).encode()
+        ).hexdigest(),
         evaluated_case_ids=first.evaluated_case_ids,
+        evaluator_assessments=tuple(
+            assessment for report in reports for assessment in report.evaluator_assessments
+        ),
+        repeat_results=tuple(
+            RepeatResult(
+                run_id=report.run_id,
+                case_scores=report.case_scores,
+                overall_precision=report.overall_precision,
+                overall_recall=report.overall_recall,
+                decision=report.decision,
+                evaluator_assessments=report.evaluator_assessments,
+            )
+            for report in reports
+        ),
+        metric_variance={
+            "precision": pvariance(report.overall_precision for report in reports),
+            "recall": pvariance(report.overall_recall for report in reports),
+            **{
+                f"{score.case_id}.{metric}": pvariance(
+                    getattr(
+                        next(item for item in report.case_scores if item.case_id == score.case_id),
+                        metric,
+                    )
+                    for report in reports
+                )
+                for score in case_scores
+                for metric in ("precision", "recall", "evidence_accuracy")
+            },
+            **{
+                f"{score.case_id}.{metric}": pvariance(
+                    next(
+                        item for item in report.case_scores if item.case_id == score.case_id
+                    ).planner_metrics[metric]
+                    for report in reports
+                )
+                for score in case_scores
+                for metric in score.planner_metrics
+            },
+        },
+        productivity_evidence=productivity,
+        code_fingerprint=first.code_fingerprint,
+        policy_suite_tests=first.policy_suite_tests,
+        review_outputs=tuple(outputs for report in reports for outputs in report.review_outputs),
     )
 
 
@@ -463,10 +615,15 @@ def _validate_repeat_metadata(reports: list[BenchmarkReport]) -> None:
         or report.rubric_id != first.rubric_id
         or report.rubric_version != first.rubric_version
         or report.candidate != first.candidate
+        or report.input_fingerprint != first.input_fingerprint
+        or report.evaluated_case_ids != first.evaluated_case_ids
+        or report.excluded_count != first.excluded_count
+        or report.code_fingerprint != first.code_fingerprint
+        or report.policy_suite_tests != first.policy_suite_tests
         for report in reports[1:]
     ):
         raise ValueError(
-            "Tier 3 repeats must use identical dataset, rubric, and candidate metadata"
+            "Tier 3 repeats must use identical dataset, rubric, inputs, cases, and candidate metadata"
         )
 
 
@@ -488,6 +645,16 @@ def _aggregate_case_scores(reports: list[BenchmarkReport]) -> tuple[CaseScore, .
             unsupported_source_count=sum(item.unsupported_source_count for item in items),
             critical_violation=any(item.critical_violation for item in items),
             findings=tuple(dict.fromkeys(finding for item in items for finding in item.findings)),
+            planner_metrics={
+                metric: sum(item.planner_metrics[metric] for item in items) / expected_repeats
+                for metric in set.intersection(*(set(item.planner_metrics) for item in items))
+            },
+            observed_actions=tuple(
+                dict.fromkeys(action for item in items for action in item.observed_actions)
+            ),
+            observed_workflow_state=items[0].observed_workflow_state
+            if len({item.observed_workflow_state for item in items}) == 1
+            else None,
         )
         for case_id, items in sorted(grouped.items())
     )
@@ -529,7 +696,8 @@ def run_offline_suite(
     usage: tuple[ModelUsage, ...] = (),
 ) -> BenchmarkReport:
     approved = tuple(case for case in dataset.cases if case.gold.status == GoldStatus.APPROVED)
-    scores = tuple(evaluate_case(case, handler(case)) for case in approved)
+    outputs = {case.case_id: handler(case) for case in approved}
+    scores = tuple(evaluate_case(case, outputs[case.case_id]) for case in approved)
     if any(score.critical_violation for score in scores):
         decision = ReleaseDecision.BLOCKED
     elif not scores or any(
@@ -560,5 +728,20 @@ def run_offline_suite(
         overall_recall=sum(score.recall for score in scores) / len(scores) if scores else 0,
         decision=decision,
         input_fingerprint=fingerprint,
+        output_fingerprint=fingerprint_outputs(outputs),
+        review_outputs=(outputs,),
         evaluated_case_ids=tuple(score.case_id for score in scores),
+        failure_case_ids=tuple(
+            score.case_id
+            for score in scores
+            if score.critical_violation
+            or score.findings
+            or min(score.precision, score.recall, score.evidence_accuracy) < 1
+        ),
+        evaluator_assessments=tuple(
+            output.evaluator_assessment
+            for output in outputs.values()
+            if output.evaluator_assessment is not None
+        ),
+        code_fingerprint=code_fingerprint(),
     )

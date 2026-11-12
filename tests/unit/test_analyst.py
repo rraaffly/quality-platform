@@ -185,7 +185,7 @@ def test_tier1_analyst_fixtures_match_approved_gold_references() -> None:
                 assert "attempt" in lines[reference.start_line - 1]
 
 
-def test_tier1_analyst_evaluation_scores_approved_human_gold() -> None:
+def test_tier1_analyst_evaluation_requires_semantic_definition_even_for_approved_gold() -> None:
     benchmark_root = Path(__file__).parents[2] / "benchmarks"
     dataset = load_dataset("v0.1", benchmark_root)
     analyst_only = Dataset(
@@ -223,9 +223,13 @@ def test_tier1_analyst_evaluation_scores_approved_human_gold() -> None:
     )
     assert report.eligible_count == 2
     assert report.excluded_count == 0
-    assert report.overall_precision == 1
-    assert report.overall_recall == 1
-    assert report.decision == ReleaseDecision.PASS
+    # Existing v0.1 human approvals are not permission to invent semantic definitions.
+    assert report.overall_precision == 0
+    assert report.overall_recall == 0
+    assert report.decision == ReleaseDecision.REVIEW_REQUIRED
+    assert all(
+        "gold semantic definition missing" in score.findings[0] for score in report.case_scores
+    )
 
 
 @pytest.mark.asyncio

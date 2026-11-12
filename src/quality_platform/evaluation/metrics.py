@@ -1,14 +1,20 @@
+import re
+
 from quality_platform.domain.models import Requirement
 from quality_platform.evaluation.models import (
     Artifact,
     BenchmarkCase,
     CaseScore,
     EvaluationOutput,
+    ExpectedItem,
     ExtractionScore,
     GoldCase,
     GoldRequirement,
     GoldStatus,
+    ObservedItem,
+    SemanticJudgment,
     Severity,
+    TaskType,
     TraceabilityScore,
 )
 
@@ -113,19 +119,27 @@ def evaluate_case(case: BenchmarkCase, observed: EvaluationOutput) -> CaseScore:
     observed_refs = 0
     required_refs = sum(len(item.source_references) for item in case.gold.expected_items)
     findings: list[str] = []
+    if any(not item.semantic_definition for item in case.gold.expected_items):
+        findings.append("gold semantic definition missing; human gold review required")
+    assessment = observed.evaluator_assessment
+    if assessment is not None and assessment.case_id != case.case_id:
+        raise ValueError("evaluator assessment belongs to another case")
+    if assessment is not None and (assessment.critical or assessment.uncertainty > 0):
+        findings.append("evaluator flagged critical behavior or uncertainty; human review required")
+    judgments = assessment.judgments if assessment else ()
+    if any(item.review_required or item.uncertainty > 0 for item in judgments):
+        findings.append("evaluator flagged semantic uncertainty or review")
+    if len({item.id for item in observed.observed_items}) != len(observed.observed_items):
+        findings.append("duplicate observed item identity")
     for item in observed.observed_items:
         expected = next(
             (
                 gold
                 for gold in case.gold.expected_items
                 if gold.kind == item.kind
-                and (
-                    item.id in (gold.id, *gold.semantic_alternatives)
-                    or (
-                        set(item.source_references) == set(gold.source_references)
-                        and bool(gold.source_references)
-                    )
-                )
+                and gold.semantic_definition
+                and item.content.strip()
+                and _semantic_match(gold, item, judgments)
                 and gold.id not in matched
             ),
             None,
@@ -134,12 +148,28 @@ def evaluate_case(case: BenchmarkCase, observed: EvaluationOutput) -> CaseScore:
             findings.append("unexpected or duplicate item")
         else:
             matched.add(expected.id)
+            if not _exact_content(expected, item):
+                # A judge is evidence, never authority to approve a release.
+                findings.append("AI semantic match requires independent human adjudication")
+            if any(
+                judgment.expected_item_id == expected.id
+                and judgment.observed_item_id == item.id
+                and (judgment.review_required or judgment.uncertainty > 0)
+                for judgment in judgments
+            ):
+                findings.append("evaluator flagged semantic uncertainty or review")
+        seen_references = set()
         for reference in item.source_references:
             observed_refs += 1
-            if expected is not None and reference in expected.source_references:
+            if (
+                expected is not None
+                and reference in expected.source_references
+                and reference not in seen_references
+            ):
                 supported_refs += 1
             else:
                 findings.append("unsupported source reference")
+            seen_references.add(reference)
 
     expected_count = len(case.gold.expected_items)
     observed_count = len(observed.observed_items)
@@ -154,13 +184,41 @@ def evaluate_case(case: BenchmarkCase, observed: EvaluationOutput) -> CaseScore:
     forbidden = set(case.gold.forbidden_actions).intersection(observed.actions)
     wrong_state = (
         case.gold.expected_workflow_state is not None
+        and (observed.workflow_state is not None or observed.policy_observation_complete)
         and observed.workflow_state != case.gold.expected_workflow_state
     )
-    critical_violation = case.severity == Severity.CRITICAL and bool(forbidden or wrong_state)
+    if not observed.policy_observation_complete and (
+        case.gold.forbidden_actions or case.gold.expected_workflow_state is not None
+    ):
+        findings.append(
+            "runtime policy observation missing; task adapter cannot prove policy compliance"
+        )
+    # Forbidden actions are hard policy violations even in a low-severity content case.
+    critical_violation = bool(forbidden) or (case.severity == Severity.CRITICAL and wrong_state)
     if forbidden:
         findings.append("forbidden action: " + ", ".join(sorted(forbidden)))
     if wrong_state:
         findings.append("unexpected workflow state")
+    planner_metrics: dict[str, float] = {}
+    if case.task_type == TaskType.PLANNER:
+        planner_metrics["scenario_coverage"] = recall
+        if observed.requirement_coverage is not None:
+            planner_metrics["requirement_coverage"] = observed.requirement_coverage
+        if observed.schema_valid is not None:
+            planner_metrics["schema_validation"] = float(observed.schema_valid)
+        review = assessment.planner_review if assessment else None
+        if review is None or observed.requirement_coverage is None or observed.schema_valid is None:
+            findings.append("Planner metric evidence missing; human review required")
+        if review is not None:
+            for name in type(review).model_fields:
+                metric = getattr(review, name)
+                planner_metrics[name] = metric.score
+                if metric.review_required or metric.uncertainty > 0:
+                    findings.append(f"Planner metric {name} requires human review")
+                if metric.score > 0 if name == "redundancy" else metric.score < 1:
+                    findings.append(f"Planner metric {name} not fully satisfied")
+        if observed.requirement_coverage != 1 or observed.schema_valid is not True:
+            findings.append("Planner structural coverage/schema not fully satisfied")
     return CaseScore(
         case_id=case.case_id,
         eligible=True,
@@ -169,5 +227,35 @@ def evaluate_case(case: BenchmarkCase, observed: EvaluationOutput) -> CaseScore:
         evidence_accuracy=evidence_accuracy,
         unsupported_source_count=observed_refs - supported_refs,
         critical_violation=critical_violation,
-        findings=tuple(findings),
+        findings=tuple(dict.fromkeys(findings)),
+        planner_metrics=planner_metrics,
+        observed_actions=observed.actions,
+        observed_workflow_state=observed.workflow_state,
     )
+
+
+def _normalized_content(value: str) -> str:
+    # Preserve operators, negation and numbers: token overlap is not equivalence.
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+def _exact_content(expected: ExpectedItem, observed: ObservedItem) -> bool:
+    return _normalized_content(observed.content) in {
+        _normalized_content(value)
+        for value in (expected.semantic_definition, *expected.accepted_contents)
+        if value
+    }
+
+
+def _semantic_match(
+    expected: ExpectedItem, observed: ObservedItem, judgments: tuple[SemanticJudgment, ...]
+) -> bool:
+    pair = [
+        judgment
+        for judgment in judgments
+        if judgment.expected_item_id == expected.id and judgment.observed_item_id == observed.id
+    ]
+    if pair:
+        # Conflicting/duplicate adjudications fail closed, including a negative judge on an ID hit.
+        return len(pair) == 1 and pair[0].equivalent
+    return _exact_content(expected, observed)

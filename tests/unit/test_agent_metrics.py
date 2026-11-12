@@ -127,6 +127,7 @@ def test_conflict_is_scored_as_one_case_with_all_required_evidence() -> None:
                 ExpectedItem(
                     id="three-vs-five",
                     kind="CONFLICT",
+                    semantic_definition="The lockout threshold is three versus five attempts.",
                     source_references=(brd, srs),
                 ),
             ),
@@ -140,6 +141,7 @@ def test_conflict_is_scored_as_one_case_with_all_required_evidence() -> None:
                 ObservedItem(
                     id="three-vs-five",
                     kind="CONFLICT",
+                    content="The lockout threshold is three versus five attempts.",
                     source_references=(brd, srs),
                 ),
             )

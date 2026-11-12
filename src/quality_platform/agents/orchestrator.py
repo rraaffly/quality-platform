@@ -85,6 +85,19 @@ async def plan_user_intent(context: AgentContext, user_text: str) -> TaskProposa
     workflow = context.repo.read_workflow(context.project_id, context.workflow_id)
     if workflow.project_id != context.project_id:
         raise PermissionError("workflow belongs to another project")
+    from quality_platform.services.scopes import ScopeService
+
+    scopes = ScopeService(
+        context.repo, project_id=context.project_id, workflow_id=context.workflow_id
+    ).list_scopes()
+    scope_ids = {item.id for item in scopes}
+    artifacts = [
+        event.record_id
+        for event in context.repo.list_decisions(context.project_id)
+        if event.event_type == "artifact"
+        and context.repo.read_artifact_version(context.project_id, event.record_id).scope_id
+        in scope_ids
+    ]
     eligible_requirements: tuple[str, ...] = ()
     blocked_requirements: tuple[str, ...] = ()
     if context.analysis is not None:
@@ -97,13 +110,18 @@ async def plan_user_intent(context: AgentContext, user_text: str) -> TaskProposa
     prompt = (
         "Propose a typed task plan only; do not execute tools, change the database, approve "
         "artifacts, or claim human authority. Put independent conflict analysis ahead of draft "
-        "work while preserving explicit dependencies. Use only this active workflow context:\n"
+        "work while preserving explicit dependencies. If sources have not been analyzed, make "
+        "ANALYZE_CONFLICTS a prerequisite of drafting; use target_id=ALL to draft discovered scopes. "
+        "For drafts target a scope; for revision/finalization target an existing artifact ID. "
+        "FINALIZE_ARTIFACT requests a human gate, never approval. Use only this active workflow context:\n"
         f"project_id={context.project_id}\n"
         f"workflow_id={workflow.id}\n"
         f"goal={workflow.goal}\n"
         f"source_snapshot_ids={list(workflow.source_snapshot_ids)}\n"
         f"draft_eligible_requirement_ids={list(eligible_requirements)}\n"
         f"blocked_requirement_ids={list(blocked_requirements)}\n"
+        f"scope_ids={sorted(scope_ids)}\n"
+        f"artifact_ids={sorted(set(artifacts))}\n"
         f"user_intent={user_text}"
     )
     result = await generate_structured(

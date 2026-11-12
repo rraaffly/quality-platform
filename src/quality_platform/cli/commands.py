@@ -10,6 +10,7 @@ from typing import Annotated
 import typer
 from pydantic import BaseModel, ConfigDict
 
+from quality_platform.config.loader import load_config
 from quality_platform.domain.models import (
     ProjectRecord,
     StakeholderAnswer,
@@ -129,7 +130,15 @@ def start_workflow(
     goal: Annotated[str, typer.Option()],
     project_id: Annotated[str | None, typer.Option()] = None,
     thread_id: Annotated[str | None, typer.Option()] = None,
+    config: Annotated[
+        Path | None, typer.Option(help="Snapshot immutable workflow configuration")
+    ] = None,
+    source: Annotated[
+        list[Path] | None, typer.Option(help="Markdown input; repeat for multiple files")
+    ] = None,
 ) -> None:
+    if source and config is None:
+        raise typer.BadParameter("--config is required with --source")
     with _repository(database) as repo:
         active_project = _selected_project(database, repo, project_id)
         created = repo.create_workflow(
@@ -141,6 +150,12 @@ def start_workflow(
                 status=WorkflowStatus.ACTIVE,
             )
         )
+        if config is not None:
+            from quality_platform.workflows.execution import configure_execution
+
+            configure_execution(
+                repo, active_project, workflow_id, load_config(config), source or []
+            )
     typer.echo(f"{created.id}: {created.status}")
 
 
@@ -165,9 +180,39 @@ def resume_workflow(
     artifact_id: Annotated[str | None, typer.Option()] = None,
     actor: Annotated[str | None, typer.Option()] = None,
     approved: Annotated[bool, typer.Option("--approve/--reject")] = True,
+    request_id: Annotated[
+        str | None, typer.Option(help="Resume a durable natural-language request")
+    ] = None,
 ) -> None:
     with _repository(database) as repo:
         active_project = _selected_project(database, repo, project_id)
+        if request_id is not None:
+            from quality_platform.workflows.execution import IntentPlan, WorkflowExecution
+
+            if checkpoint_database is None or artifact_id is not None:
+                raise typer.BadParameter(
+                    "request resume needs --checkpoint-database and no --artifact-id"
+                )
+            plans = [
+                IntentPlan.model_validate_json(event.payload)
+                for event in repo.list_decisions(active_project)
+                if event.event_type == "task_plan" and event.record_id == workflow_id
+            ]
+            plan = next((item for item in plans if item.request_id == request_id), None)
+            if plan is None:
+                raise typer.BadParameter(
+                    "request plan not saved; rerun workflow run with the original instruction"
+                )
+
+            async def resume_request() -> str:
+                async with create_checkpoint_saver(checkpoint_database) as saver:
+                    results = await WorkflowExecution(repo, active_project, workflow_id, saver).run(
+                        plan.instruction, request_id, style=plan.rendering_style
+                    )
+                    return json.dumps([item.model_dump(mode="json") for item in results], indent=2)
+
+            typer.echo(asyncio.run(resume_request()))
+            return
         if artifact_id is not None:
             if checkpoint_database is None or actor is None:
                 raise typer.BadParameter(
@@ -254,7 +299,13 @@ def review_scope(
     action: Annotated[str, typer.Option()],
     actor: Annotated[str, typer.Option()],
     project_id: Annotated[str | None, typer.Option()] = None,
+    merge_with: Annotated[list[str] | None, typer.Option()] = None,
+    replacements: Annotated[
+        Path | None, typer.Option(help="JSON ScopeProposalSet for merge/split")
+    ] = None,
 ) -> None:
+    from quality_platform.services.scopes import ScopeProposalSet
+
     with _repository(database) as repo:
         active_project = _selected_project(database, repo, project_id)
         service = ScopeService(repo, project_id=active_project, workflow_id=workflow_id)
@@ -264,6 +315,12 @@ def review_scope(
                 action=ScopeAction(action.upper()),
                 actor=actor,
                 human_reviewed=True,
+                merge_with_ids=tuple(merge_with or []),
+                replacements=(
+                    ScopeProposalSet.model_validate_json(replacements.read_text()).proposals
+                    if replacements is not None
+                    else ()
+                ),
             ),
         )
     typer.echo(f"{item.id}: {item.status}")
@@ -395,6 +452,9 @@ def show_benchmark_report(report: Annotated[Path, typer.Option()]) -> None:
 
 
 def register_commands(root: typer.Typer) -> None:
+    from quality_platform.cli.evaluation import register_evaluation_commands
+    from quality_platform.cli.workflow import register_workflow_commands
+
     root.add_typer(project, name="project")
     root.add_typer(workflow, name="workflow")
     root.add_typer(clarification, name="clarification")
@@ -402,3 +462,5 @@ def register_commands(root: typer.Typer) -> None:
     root.add_typer(artifact, name="artifact")
     root.add_typer(benchmark, name="benchmark")
     workflow.command("answer", hidden=True)(answer_clarification)
+    register_workflow_commands(workflow, scope, artifact)
+    register_evaluation_commands(benchmark)

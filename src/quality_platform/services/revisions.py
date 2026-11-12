@@ -4,11 +4,19 @@ import os
 import re
 import tempfile
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import Field
 
-from quality_platform.domain.models import ArtifactKind, ArtifactStatus, ArtifactVersion, Record
+from quality_platform.domain.models import (
+    ApprovalRecord,
+    ArtifactKind,
+    ArtifactStaleness,
+    ArtifactStatus,
+    ArtifactVersion,
+    Record,
+)
 from quality_platform.domain.schemas import TestCase, TestCaseSet
 from quality_platform.rendering.test_cases import (
     ChangeManifest,
@@ -27,7 +35,26 @@ class RevisionDraft(Record):
     before: TestCaseSet
     after: TestCaseSet
     manifest: ChangeManifest
+    requirement_versions: dict[str, int] = Field(default_factory=dict)
+    source_snapshot_ids: tuple[str, ...] = ()
     diff_hash: str = Field(min_length=1)
+
+    def calculate_diff_hash(self) -> str:
+        canonical = json.dumps(
+            {
+                "artifact_id": self.artifact_id,
+                "from_version": self.from_version,
+                "to_version": self.to_version,
+                "instruction": self.instruction,
+                "target_case_ids": self.target_case_ids,
+                "before_hash": self.manifest.before_hash,
+                "after_hash": self.manifest.after_hash,
+                "requirement_versions": self.requirement_versions,
+                "source_snapshot_ids": self.source_snapshot_ids,
+            },
+            sort_keys=True,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class RevisionApproval(Record):
@@ -68,15 +95,9 @@ class RevisionService:
     def artifact_path(self, artifact_id: str, version: int) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", artifact_id):
             raise ValueError("invalid artifact ID")
-        path = (
-            self.workspace
-            / self.project_id
-            / "artifacts"
-            / artifact_id
-            / f"v{version}"
-            / "test-cases.json"
-        ).resolve()
-        if not path.is_relative_to(self.workspace):
+        root = self.repo.read_project_record(self.project_id, self.project_id).root.resolve()
+        path = (root / "artifacts" / artifact_id / f"v{version}" / "test-cases.json").resolve()
+        if not root.is_relative_to(self.workspace) or not path.is_relative_to(root):
             raise ValueError("artifact path escapes workspace")
         return path
 
@@ -91,7 +112,15 @@ class RevisionService:
             raise ValueError("canonical test case artifact hash mismatch")
         return TestCaseSet.model_validate_json(content)
 
-    def prepare_revision(self, instruction: str, artifact_id: str) -> RevisionDraft:
+    def prepare_revision(
+        self,
+        instruction: str,
+        artifact_id: str,
+        *,
+        proposed_case: TestCase | None = None,
+        requirement_versions: dict[str, int] | None = None,
+        source_snapshot_ids: tuple[str, ...] = (),
+    ) -> RevisionDraft:
         if not instruction.strip():
             raise ValueError("revision instruction is required")
         artifact = self.repo.read_artifact_version(self.project_id, artifact_id)
@@ -106,28 +135,20 @@ class RevisionService:
         target = by_id.get(target_id)
         if target is None:
             raise ValueError(f"revision target does not exist: {target_id}")
-        revised = TestCase.model_validate(self.reviser(target, instruction))
+        revised = TestCase.model_validate(
+            proposed_case if proposed_case is not None else self.reviser(target, instruction)
+        )
         if revised.id != target.id:
             raise ValueError("revision cannot change the stable test case ID")
+        if revised.requirement_ids != target.requirement_ids:
+            raise ValueError("revision cannot change requirement membership")
         after = TestCaseSet(
             cases=tuple(revised if case.id == target_id else case for case in before.cases)
         )
         manifest = build_change_manifest(list(before.cases), list(after.cases))
         if manifest.changed_ids != (target_id,) or manifest.added_ids or manifest.removed_ids:
             raise ValueError("revision changed content outside the authorized target")
-        canonical_diff = json.dumps(
-            {
-                "artifact_id": artifact_id,
-                "from_version": artifact.version,
-                "to_version": artifact.version + 1,
-                "instruction": instruction,
-                "target_case_ids": mentioned,
-                "before_hash": manifest.before_hash,
-                "after_hash": manifest.after_hash,
-            },
-            sort_keys=True,
-        )
-        return RevisionDraft(
+        draft = RevisionDraft(
             artifact_id=artifact_id,
             from_version=artifact.version,
             to_version=artifact.version + 1,
@@ -136,13 +157,48 @@ class RevisionService:
             before=before,
             after=after,
             manifest=manifest,
-            diff_hash=hashlib.sha256(canonical_diff.encode("utf-8")).hexdigest(),
+            requirement_versions=requirement_versions or {},
+            source_snapshot_ids=source_snapshot_ids,
+            diff_hash="pending",
         )
+        return draft.model_copy(update={"diff_hash": draft.calculate_diff_hash()})
 
     def commit_revision(self, draft: RevisionDraft, approval: RevisionApproval) -> ArtifactVersion:
+        manifest = build_change_manifest(list(draft.before.cases), list(draft.after.cases))
+        if (
+            manifest != draft.manifest
+            or draft.calculate_diff_hash() != draft.diff_hash
+            or manifest.changed_ids != draft.target_case_ids
+            or manifest.added_ids
+            or manifest.removed_ids
+            or draft.to_version != draft.from_version + 1
+        ):
+            raise ValueError("revision draft no longer matches its reviewed diff")
         if not approval.approved or approval.reviewed_diff_hash != draft.diff_hash:
             raise PermissionError("human approval of the exact reviewed diff is required")
+        before_by_id = {case.id: case for case in draft.before.cases}
+        if any(
+            case.requirement_ids != before_by_id[case.id].requirement_ids
+            for case in draft.after.cases
+        ):
+            raise ValueError("revision cannot change requirement membership")
+        if any(
+            self.repo.latest_requirement_version(self.project_id, key) != version
+            for key, version in draft.requirement_versions.items()
+        ):
+            raise ValueError("requirement baseline changed after revision preparation")
         current = self.repo.read_artifact_version(self.project_id, draft.artifact_id)
+        key = f"revision:{self.project_id}:{current.id}:{draft.to_version}:{draft.diff_hash}"
+        review = ApprovalRecord(
+            id=hashlib.sha256(key.encode()).hexdigest(),
+            actor=approval.actor,
+            target_id=current.id,
+            target_version=draft.to_version,
+            scope_id=current.scope_id,
+            baseline_id=current.requirement_baseline_id,
+            reviewed_evidence=(f"diff:{draft.diff_hash}", f"from-version:{draft.from_version}"),
+            approved_at=datetime.now(UTC),
+        )
         content = render_test_cases(list(draft.after.cases), "detailed")["json"]
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         if current.version == draft.to_version:
@@ -153,6 +209,12 @@ class RevisionService:
                 and current.content_hash == content_hash
                 and hashlib.sha256(persisted).hexdigest() == content_hash
             ):
+                self.repo.save_artifact_version(
+                    self.project_id,
+                    current.model_copy(update={"staleness": ArtifactStaleness.CURRENT}),
+                    idempotency_key=key,
+                    revision_review=review,
+                )
                 return current
             raise ValueError("revision replay differs from the committed artifact")
         if current.version != draft.from_version:
@@ -160,10 +222,6 @@ class RevisionService:
         before = self._verified_cases(current)
         if before != draft.before:
             raise ValueError("artifact content changed after revision preparation")
-        manifest = build_change_manifest(list(draft.before.cases), list(draft.after.cases))
-        if manifest != draft.manifest or manifest.changed_ids != draft.target_case_ids:
-            raise ValueError("revision draft no longer matches its reviewed diff")
-
         revised = ArtifactVersion(
             id=current.id,
             kind=current.kind,
@@ -193,9 +251,8 @@ class RevisionService:
             self.repo.save_artifact_version(
                 self.project_id,
                 revised,
-                idempotency_key=(
-                    f"revision:{self.project_id}:{current.id}:{draft.to_version}:{draft.diff_hash}"
-                ),
+                idempotency_key=key,
+                revision_review=review,
             )
         except Exception:
             target.unlink(missing_ok=True)

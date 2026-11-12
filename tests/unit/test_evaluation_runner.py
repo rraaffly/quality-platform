@@ -2,6 +2,8 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from quality_platform.domain.models import SourceReference
 from quality_platform.evaluation.metrics import evaluate_case
 from quality_platform.evaluation.models import (
@@ -35,6 +37,7 @@ def approved_case(case_id: str, *, severity: Severity = Severity.MEDIUM) -> Benc
                 ExpectedItem(
                     id="REQ-1",
                     kind="REQUIREMENT",
+                    semantic_definition="The user can sign in.",
                     source_references=(
                         SourceReference(document_id="BRD-1", start_line=2, end_line=2),
                     ),
@@ -69,6 +72,7 @@ def test_only_approved_gold_contributes_to_release_metrics() -> None:
                 ObservedItem(
                     id="REQ-1",
                     kind="REQUIREMENT",
+                    content="The user can sign in.",
                     source_references=(
                         SourceReference(document_id="BRD-1", start_line=2, end_line=2),
                     ),
@@ -95,6 +99,7 @@ def test_unsupported_source_reference_is_penalized() -> None:
                 ObservedItem(
                     id="REQ-1",
                     kind="REQUIREMENT",
+                    content="The user can sign in.",
                     source_references=(
                         SourceReference(document_id="SRS-9", start_line=99, end_line=99),
                     ),
@@ -106,9 +111,10 @@ def test_unsupported_source_reference_is_penalized() -> None:
     assert result.evidence_accuracy == 0
 
 
-def test_critical_policy_bypass_blocks_even_with_good_average() -> None:
+@pytest.mark.parametrize("severity", list(Severity))
+def test_critical_policy_bypass_blocks_even_with_good_average(severity: Severity) -> None:
     good = approved_case("good")
-    critical = approved_case("critical", severity=Severity.CRITICAL)
+    critical = approved_case("critical", severity=severity)
 
     def handler(case: BenchmarkCase) -> EvaluationOutput:
         return EvaluationOutput(
@@ -116,6 +122,7 @@ def test_critical_policy_bypass_blocks_even_with_good_average() -> None:
                 ObservedItem(
                     id="REQ-1",
                     kind="REQUIREMENT",
+                    content="The user can sign in.",
                     source_references=(
                         SourceReference(document_id="BRD-1", start_line=2, end_line=2),
                     ),

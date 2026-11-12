@@ -22,7 +22,7 @@ from quality_platform.evaluation.models import (
     Severity,
     TaskType,
 )
-from quality_platform.evaluation.reporting import write_report
+from quality_platform.evaluation.reporting import validate_review_packet, write_report
 from quality_platform.evaluation.runner import run_offline_suite
 from quality_platform.llm.registry import AgentRole
 
@@ -62,6 +62,7 @@ def test_report_records_reproducible_metadata_cost_and_masks_private_input(
     tmp_path: Path,
 ) -> None:
     private_marker = "PRIVATE CUSTOMER PRD: acquisition target"
+    private_output = "Private candidate requirement for independent QA review"
     case = approved_case("metadata")
     report = run_offline_suite(
         Dataset(version="v0.2", rubric_version="v0.4", cases=(case,)),
@@ -70,6 +71,7 @@ def test_report_records_reproducible_metadata_cost_and_masks_private_input(
                 ObservedItem(
                     id="REQ-1",
                     kind="REQUIREMENT",
+                    content=private_output,
                     source_references=case.gold.expected_items[0].source_references,
                 ),
             ),
@@ -116,6 +118,15 @@ def test_report_records_reproducible_metadata_cost_and_masks_private_input(
     assert payload["total_cost_usd"] == 0.0063
     assert "Cost (USD): 0.006300" in markdown_text
     assert private_marker not in json_text + markdown_text
+    assert private_output not in json_text + markdown_text
+    persisted = BenchmarkReport.model_validate_json(json_text)
+    packet = validate_review_packet(persisted)
+    assert packet.outputs[0]["metadata"].observed_items[0].content == private_output
+    assert persisted.review_packet_path is not None
+    packet_path = Path(persisted.review_packet_path)
+    assert private_marker not in packet_path.read_text()
+    assert packet_path.stat().st_mode & 0o777 == 0o600
+    assert packet_path.parent.stat().st_mode & 0o777 == 0o700
 
 
 def test_unapproved_real_world_case_is_excluded_without_invoking_handler() -> None:

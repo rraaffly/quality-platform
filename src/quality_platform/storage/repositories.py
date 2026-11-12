@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -7,6 +8,7 @@ from sqlalchemy.engine import Engine
 
 from quality_platform.domain.models import (
     ApprovalRecord,
+    ArtifactStaleness,
     ArtifactStatus,
     ArtifactVersion,
     Clarification,
@@ -191,6 +193,19 @@ class QaRepositories:
                 if existing.project_id != project_id or existing.payload != payload:
                     raise ValueError("idempotency key reused with different requirement")
                 return requirement
+            previous_payload = connection.execute(
+                select(requirement_versions.c.payload)
+                .where(
+                    requirement_versions.c.project_id == project_id,
+                    requirement_versions.c.requirement_id == requirement.id,
+                )
+                .order_by(requirement_versions.c.version.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if previous_payload is not None:
+                previous = Requirement.model_validate_json(previous_payload)
+                if requirement.version > previous.version + 1:
+                    raise ValueError("requirement version must advance by one")
             connection.execute(
                 requirement_versions.insert().values(
                     project_id=project_id,
@@ -200,7 +215,209 @@ class QaRepositories:
                     payload=payload,
                 )
             )
+            if previous_payload is not None:
+                from quality_platform.services.impact import (
+                    ArtifactDependency,
+                    RequirementChange,
+                    detect_impact,
+                )
+
+                events = connection.execute(
+                    select(audit_events)
+                    .where(audit_events.c.project_id == project_id)
+                    .order_by(audit_events.c.seq)
+                ).all()
+                baselines = {
+                    row.record_id: json.loads(row.payload)["requirement_versions"]
+                    for row in events
+                    if row.event_type == "baseline"
+                }
+                traces = {
+                    (row.record_id, json.loads(row.payload)["version"]): json.loads(row.payload)[
+                        "requirement_versions"
+                    ]
+                    for row in events
+                    if row.event_type == "artifact_trace"
+                }
+                artifacts = {
+                    row.record_id: ArtifactVersion.model_validate_json(row.payload)
+                    for row in events
+                    if row.event_type == "artifact"
+                }
+                affected = tuple(
+                    ArtifactDependency(
+                        project_id=project_id,
+                        artifact_id=item.id,
+                        scope_id=item.scope_id,
+                        requirement_ids=tuple(versions),
+                    )
+                    for item in artifacts.values()
+                    if requirement.id
+                    in (
+                        versions := traces.get(
+                            (item.id, item.version), baselines.get(item.requirement_baseline_id, {})
+                        )
+                    )
+                    and versions[requirement.id] < requirement.version
+                )
+                # Readiness, evidence and dependency edits also invalidate old baselines.
+                report = detect_impact(
+                    RequirementChange(
+                        project_id=project_id,
+                        requirement_id=requirement.id,
+                        from_version=previous.version,
+                        to_version=requirement.version,
+                        before_statement=previous.statement,
+                        after_statement=requirement.statement,
+                        changed_fields=tuple(
+                            name
+                            for name, value in previous.model_dump().items()
+                            if requirement.model_dump()[name] != value
+                        ),
+                        traced_artifacts=affected,
+                    )
+                )
+                connection.execute(
+                    audit_events.insert().values(
+                        project_id=project_id,
+                        event_type="impact",
+                        record_id=report.id,
+                        payload=report.model_dump_json(),
+                        idempotency_key=f"impact:{project_id}:{requirement.id}:{requirement.version}",
+                    )
+                )
         return requirement
+
+    def list_requirements(self, project_id: str) -> list[Requirement]:
+        self._authorize(project_id, project_id, "read")
+        with self.engine.connect() as connection:
+            payloads = connection.execute(
+                select(requirement_versions.c.payload)
+                .where(requirement_versions.c.project_id == project_id)
+                .order_by(requirement_versions.c.version)
+            ).scalars()
+            latest: dict[str, Requirement] = {}
+            for payload in payloads:
+                item = Requirement.model_validate_json(payload)
+                latest[item.id] = item
+        return list(latest.values())
+
+    def configure_workflow(
+        self,
+        project_id: str,
+        workflow_id: str,
+        *,
+        source_snapshot_ids: tuple[str, ...],
+        model_config_snapshot_id: str | None = None,
+    ) -> WorkflowRecord:
+        current = self.read_workflow(project_id, workflow_id)
+        if current.project_id != project_id:
+            raise PermissionError("cross-project workflow mutation denied")
+        if model_config_snapshot_id is not None and current.model_config_snapshot_id not in (
+            None,
+            model_config_snapshot_id,
+        ):
+            raise ValueError("workflow model configuration is immutable; start a new workflow")
+        for source_id in source_snapshot_ids:
+            self.read_source_document(project_id, source_id)
+        updated = current.model_copy(
+            update={
+                "source_snapshot_ids": source_snapshot_ids,
+                "model_config_snapshot_id": model_config_snapshot_id
+                or current.model_config_snapshot_id,
+            }
+        )
+        with self.engine.begin() as connection:
+            connection.execute(
+                workflows.update()
+                .where(workflows.c.id == workflow_id)
+                .values(payload=updated.model_dump_json())
+            )
+        return updated
+
+    def append_workflow_event(
+        self, project_id: str, workflow_id: str, event_type: str, payload: str, *, key: str
+    ) -> int:
+        workflow = self.read_workflow(project_id, workflow_id)
+        if workflow.project_id != project_id:
+            raise PermissionError("cross-project workflow mutation denied")
+        if event_type not in {
+            "workflow_config",
+            "analysis",
+            "task_plan",
+            "task_result",
+            "revision_draft",
+        }:
+            raise ValueError("unsupported workflow event")
+        seq = self._append_domain_event(
+            project_id,
+            event_type,
+            workflow_id,
+            payload,
+            f"{project_id}:{workflow_id}:{event_type}:{key}",
+        )
+        if event_type == "task_plan":
+            plan = json.loads(payload)
+            with self.engine.begin() as connection:
+                current = WorkflowRecord.model_validate_json(
+                    connection.execute(
+                        select(workflows.c.payload).where(workflows.c.id == workflow_id)
+                    ).scalar_one()
+                )
+                task_ids = tuple(
+                    dict.fromkeys(
+                        (
+                            *current.task_ids,
+                            *(
+                                f"{plan['request_id']}:{task['id']}"
+                                for task in plan["proposal"]["tasks"]
+                            ),
+                        )
+                    )
+                )
+                connection.execute(
+                    workflows.update()
+                    .where(workflows.c.id == workflow_id)
+                    .values(
+                        payload=current.model_copy(update={"task_ids": task_ids}).model_dump_json()
+                    )
+                )
+        return seq
+
+    def save_artifact_trace(
+        self,
+        project_id: str,
+        artifact: ArtifactVersion,
+        versions: dict[str, int],
+        *,
+        workflow_id: str | None = None,
+    ) -> None:
+        if workflow_id is not None:
+            workflow = self.read_workflow(project_id, workflow_id)
+            if workflow.project_id != project_id:
+                raise PermissionError("cross-project artifact trace denied")
+            owners = {
+                json.loads(event.payload).get("workflow_id")
+                for event in self.list_decisions(project_id)
+                if event.event_type == "artifact_trace" and event.record_id == artifact.id
+            } - {None}
+            if owners and owners != {workflow_id}:
+                raise PermissionError("artifact belongs to another workflow")
+        payload = json.dumps(
+            {
+                "version": artifact.version,
+                "requirement_versions": versions,
+                **({"workflow_id": workflow_id} if workflow_id is not None else {}),
+            },
+            sort_keys=True,
+        )
+        self._append_domain_event(
+            project_id,
+            "artifact_trace",
+            artifact.id,
+            payload,
+            f"trace:{project_id}:{artifact.id}:{artifact.version}",
+        )
 
     def read_requirement_version(
         self,
@@ -372,10 +589,24 @@ class QaRepositories:
         )
 
     def save_artifact_version(
-        self, project_id: str, artifact: ArtifactVersion, *, idempotency_key: str
+        self,
+        project_id: str,
+        artifact: ArtifactVersion,
+        *,
+        idempotency_key: str,
+        revision_review: ApprovalRecord | None = None,
     ) -> int:
         if artifact.status == ArtifactStatus.APPROVED:
             raise ValueError("approved artifact requires transactional human approval")
+        if revision_review is not None and (
+            artifact.status != ArtifactStatus.DRAFT
+            or revision_review.target_id != artifact.id
+            or revision_review.target_version != artifact.version
+            or revision_review.scope_id != artifact.scope_id
+            or revision_review.baseline_id != artifact.requirement_baseline_id
+            or not revision_review.reviewed_evidence
+        ):
+            raise ValueError("revision review does not match the draft artifact")
         self._authorize(project_id, project_id, "write")
         payload = artifact.model_dump_json()
         with self.engine.begin() as connection:
@@ -390,6 +621,18 @@ class QaRepositories:
                     or previous_key.payload != payload
                 ):
                     raise ValueError("idempotency key reused with different artifact")
+                if revision_review is not None:
+                    review_payload = connection.execute(
+                        select(audit_events.c.payload).where(
+                            audit_events.c.idempotency_key
+                            == f"revision-review:{revision_review.id}"
+                        )
+                    ).scalar_one()
+                    previous_review = ApprovalRecord.model_validate_json(review_payload)
+                    if previous_review.model_dump(
+                        exclude={"approved_at"}
+                    ) != revision_review.model_dump(exclude={"approved_at"}):
+                        raise ValueError("revision replay differs from the reviewed approval")
                 return int(previous_key.seq)
             current = connection.execute(
                 select(audit_events)
@@ -435,6 +678,16 @@ class QaRepositories:
                     idempotency_key=idempotency_key,
                 )
             )
+            if revision_review is not None:
+                connection.execute(
+                    audit_events.insert().values(
+                        project_id=project_id,
+                        event_type="revision_review",
+                        record_id=revision_review.id,
+                        payload=revision_review.model_dump_json(),
+                        idempotency_key=f"revision-review:{revision_review.id}",
+                    )
+                )
             primary_key = result.inserted_primary_key
             if primary_key is None:
                 raise RuntimeError("artifact insert did not return a primary key")
@@ -453,7 +706,34 @@ class QaRepositories:
                 .order_by(audit_events.c.seq.desc())
                 .limit(1)
             ).scalar_one()
-        return ArtifactVersion.model_validate_json(payload)
+        artifact = ArtifactVersion.model_validate_json(payload)
+        versions: dict[str, int] = {}
+        trace: dict[str, int] | None = None
+        from quality_platform.services.impact import ImpactReport
+
+        impacts: list[ImpactReport] = []
+        for event in self.list_decisions(project_id):
+            data = json.loads(event.payload)
+            if (
+                event.event_type == "baseline"
+                and event.record_id == artifact.requirement_baseline_id
+            ):
+                versions = data["requirement_versions"]
+            elif (
+                event.event_type == "artifact_trace"
+                and event.record_id == artifact_id
+                and data["version"] == artifact.version
+            ):
+                trace = data["requirement_versions"]
+            elif event.event_type == "impact" and artifact_id in data["affected_artifact_ids"]:
+                impacts.append(ImpactReport.model_validate(data))
+        versions = trace if trace is not None else versions
+        if any(
+            impact.changed_requirement_version > versions.get(impact.changed_requirement_id, 0)
+            for impact in impacts
+        ):
+            return artifact.model_copy(update={"staleness": ArtifactStaleness.POTENTIALLY_STALE})
+        return artifact
 
     def commit_artifact_approval(
         self,

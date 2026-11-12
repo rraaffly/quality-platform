@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from quality_platform.domain.models import Requirement
 from quality_platform.evaluation.models import (
     BenchmarkCase,
     Dataset,
@@ -24,6 +25,8 @@ class _InputCase(BaseModel):
     input_snapshot_ids: tuple[str, ...]
     input_snapshot_hashes: dict[str, str] = Field(default_factory=dict)
     severity: Severity
+    planner_requirements: tuple[Requirement, ...] = ()
+    planner_scope_id: str = "BENCHMARK"
 
 
 class _DatasetManifest(BaseModel):
@@ -112,6 +115,8 @@ def load_dataset(version: str, root: Path) -> Dataset:
                     severity=case.severity,
                     origin=origin,
                     gold=gold_by_id[case.case_id],
+                    planner_requirements=case.planner_requirements,
+                    planner_scope_id=case.planner_scope_id,
                 )
             )
     return Dataset(

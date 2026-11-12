@@ -1,5 +1,5 @@
 candidate_id: tier3-full-agent
-prompt_snapshot_id: tier3-observation-v1
+prompt_snapshot_id: tier3-production-semantic-review-v2
 representative_case_ids:
   - conflict
   - missing_rule
@@ -7,7 +7,8 @@ representative_case_ids:
   - approval_bypass
   - targeted_revision
 max_budget_usd: 20.0
-max_case_cost_usd: 2.0
+# Per provider invocation, including the evaluator; shared budget spans every repeat.
+max_case_cost_usd: 1.0
 agent_role: analyst
 max_repeats: 5
 minimum_approved_real_cases: 12

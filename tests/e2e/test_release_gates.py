@@ -93,6 +93,10 @@ async def test_tier3_repeats_aggregate_cost_time_and_case_linked_failures(
     result = await run_full_benchmark("v0.1", repeats=2)
 
     assert result.repeat_count == 2
+    assert [item.run_id for item in result.repeat_results] == ["repeat-1", "repeat-2"]
+    assert [item.case_scores[0].recall for item in result.repeat_results] == [1, 0.5]
+    assert result.metric_variance["recall"] == pytest.approx(0.0625)
+    assert result.metric_variance["conflict.recall"] == pytest.approx(0.0625)
     assert result.total_cost_usd == pytest.approx(0.02)
     assert result.latency_seconds >= 0
     assert result.active_qa_minutes == 12
@@ -102,6 +106,8 @@ async def test_tier3_repeats_aggregate_cost_time_and_case_linked_failures(
     assert len(set(budget_ids)) == 1
     assert "INSUFFICIENT_REAL_CASES" in result.readiness_labels
     assert "UNCALIBRATED_GATES" in result.readiness_labels
+    assert "PRODUCTIVITY_EVIDENCE_MISSING" in result.readiness_labels
+    assert "E2E_WORKFLOW_EVIDENCE_MISSING" in result.readiness_labels
 
 
 @pytest.mark.asyncio

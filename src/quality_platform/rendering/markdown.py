@@ -1,7 +1,11 @@
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from quality_platform.agents.planner import TestPlanDraft
 from quality_platform.domain.models import Requirement, SourceReference
+
+if TYPE_CHECKING:
+    from quality_platform.agents.analyst import RequirementAnalysisDraft
 
 
 def bullet_list(values: tuple[str, ...]) -> str:
@@ -21,6 +25,46 @@ def source_label(reference: SourceReference) -> str:
 
 def table_cell(value: str) -> str:
     return value.replace("\r\n", "\n").replace("\r", "\n").replace("|", "\\|").replace("\n", "<br>")
+
+
+def render_requirement_analysis(analysis: "RequirementAnalysisDraft", workflow_id: str) -> str:
+    sections = [
+        "# Requirement Analysis",
+        "",
+        "Status: DRAFT",
+        f"Workflow: {inline_text(workflow_id)}",
+        "",
+        "## Requirement baseline",
+        "",
+    ]
+    for item in analysis.requirements:
+        sections.extend(
+            [
+                f"### {inline_text(item.id)} v{item.version}",
+                "",
+                f"Readiness: {item.readiness}",
+                inline_text(item.statement),
+                "Sources: " + ", ".join(source_label(ref) for ref in item.source_references),
+                "Dependencies: " + (", ".join(item.dependency_ids) or "None"),
+                "",
+            ]
+        )
+    sections.extend(["## Clarifications and exclusions", ""])
+    sections.extend(
+        f"- {inline_text(item.id)}: {inline_text(item.question)}; excluded from final work: "
+        + ", ".join(item.affected_requirement_ids)
+        for item in analysis.clarifications
+    )
+    if not analysis.clarifications:
+        sections.append("- None")
+    sections.extend(
+        [
+            "",
+            "Review scope: only the requirement versions and source references listed above.",
+            "Human scope/baseline approval is required before final artifact approval.",
+        ]
+    )
+    return "\n".join(sections).rstrip() + "\n"
 
 
 def render_test_plan(plan: TestPlanDraft, requirements: Mapping[str, Requirement]) -> str:

@@ -112,9 +112,12 @@ def _check_numeric_conflicts(
     draft: RequirementAnalysisDraft,
     lines_by_id: dict[str, list[str]],
     resolved_conflicts: tuple[Clarification, ...] = (),
+    decision_source_ids: frozenset[str] = frozenset(),
 ) -> None:
     patterns: dict[str, list[tuple[SourceReference, tuple[str, ...]]]] = {}
     for document_id, lines in lines_by_id.items():
+        if document_id in decision_source_ids:
+            continue
         for line_number, line in enumerate(lines, 1):
             for sentence in re.split(r"(?<=[.!?])\s+", line):
                 if not re.search(
@@ -182,7 +185,16 @@ def _check_numeric_conflicts(
                 for reference in requirement.source_references
             )
         )
-        if resolved is not None and affected_validated:
+        resolved_with_decision_source = resolved is not None and any(
+            requirement.readiness == RequirementReadiness.VALIDATED
+            and _normalized(requirement.statement) == _normalized(resolved.resolution or "")
+            and any(
+                reference.document_id in decision_source_ids
+                for reference in requirement.source_references
+            )
+            for requirement in draft.requirements
+        )
+        if resolved is not None and (affected_validated or resolved_with_decision_source):
             if any(
                 _normalized(requirement.statement) != _normalized(resolved.resolution or "")
                 for requirement in affected_validated
@@ -236,6 +248,7 @@ def validate_analysis_draft(
     draft: RequirementAnalysisDraft,
     lines_by_id: dict[str, list[str]],
     resolved_conflicts: tuple[Clarification, ...] = (),
+    decision_source_ids: frozenset[str] = frozenset(),
 ) -> None:
     for requirement in draft.requirements:
         for reference in requirement.source_references:
@@ -247,7 +260,7 @@ def validate_analysis_draft(
     for item in draft.clarifications:
         for reference in item.source_references:
             _check_reference(reference, lines_by_id)
-    _check_numeric_conflicts(draft, lines_by_id, resolved_conflicts)
+    _check_numeric_conflicts(draft, lines_by_id, resolved_conflicts, decision_source_ids)
 
 
 def _resolved_conflicts(context: AgentContext) -> tuple[Clarification, ...]:
@@ -277,10 +290,13 @@ async def analyze_documents(
     if workflow.project_id != context.project_id:
         raise PermissionError("workflow belongs to another project")
     lines_by_id: dict[str, list[str]] = {}
+    decision_source_ids: set[str] = set()
     for source_id in source_ids:
         if source_id not in workflow.source_snapshot_ids:
             raise ValueError("source is outside workflow baseline")
         document = context.repo.read_source_document(context.project_id, source_id)
+        if document.input_type == "STAKEHOLDER_DECISION":
+            decision_source_ids.add(source_id)
         owner = context.repo.read_project_record(context.project_id, document.project_id)
         project_root = owner.root.resolve()
         snapshot = Path(document.snapshot_path).resolve(strict=True)
@@ -304,5 +320,5 @@ async def analyze_documents(
         factory=context.model_factory,
     )
     draft = RequirementAnalysisDraft.model_validate(result.model_dump())
-    validate_analysis_draft(draft, lines_by_id, resolved_conflicts)
+    validate_analysis_draft(draft, lines_by_id, resolved_conflicts, frozenset(decision_source_ids))
     return draft

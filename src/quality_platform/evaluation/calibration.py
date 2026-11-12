@@ -36,6 +36,10 @@ def calibrate_evaluator(ai_reviews: list[Review], human_reviews: list[Review]) -
         raise ValueError("AI and human reviews must contain the same case IDs")
     if any(not item.blind for item in (*ai_reviews, *human_reviews)):
         raise ValueError("calibration reviews must be captured blind and independently")
+    if any(item.model_snapshot_id is not None for item in human_reviews) or (
+        {item.reviewer for item in ai_reviews}.intersection(item.reviewer for item in human_reviews)
+    ):
+        raise ValueError("human reviews must be independent of the AI evaluator identity")
 
     if any(item.model_snapshot_id is None for item in ai_reviews):
         raise ValueError("AI reviews require an evaluator model snapshot")

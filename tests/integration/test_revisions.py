@@ -4,10 +4,13 @@ from pathlib import Path
 import pytest
 
 from quality_platform.domain.models import (
+    ApprovalRecord,
     ArtifactKind,
     ArtifactStatus,
     ArtifactVersion,
     ProjectRecord,
+    Requirement,
+    SourceReference,
 )
 from quality_platform.domain.schemas import TestCase, TestStep
 from quality_platform.rendering.test_cases import write_test_case_artifacts
@@ -30,7 +33,7 @@ def make_case(case_id: str, priority: str = "MEDIUM") -> TestCase:
 
 def prepared(tmp_path: Path) -> tuple[RevisionService, QaRepositories, list[TestCase]]:
     repo = QaRepositories(open_database(tmp_path / "qa.sqlite"))
-    repo.create_project(ProjectRecord(id="P1", name="Project", root=tmp_path))
+    repo.create_project(ProjectRecord(id="P1", name="Project", root=tmp_path / "P1"))
     cases = [make_case("TC-011"), make_case("TC-012"), make_case("TC-013")]
     directory = tmp_path / "P1" / "artifacts" / "CASES-1" / "v1"
     json_path = write_test_case_artifacts(directory, cases, "detailed")["json"]
@@ -90,6 +93,25 @@ def test_revision_requires_review_of_the_exact_diff_before_commit(tmp_path: Path
     assert not service.artifact_path("CASES-1", 2).exists()
     assert repo.read_artifact_version("P1", "CASES-1").version == 1
 
+    tampered = draft.model_copy(
+        update={
+            "after": draft.after.model_copy(
+                update={
+                    "cases": (
+                        draft.after.cases[0].model_copy(update={"priority": "LOW"}),
+                        *draft.after.cases[1:],
+                    )
+                }
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="reviewed diff"):
+        service.commit_revision(
+            tampered,
+            RevisionApproval(approved=True, actor="QA", reviewed_diff_hash=draft.diff_hash),
+        )
+    assert repo.read_artifact_version("P1", "CASES-1").version == 1
+
     committed = service.commit_revision(
         draft,
         RevisionApproval(
@@ -125,3 +147,45 @@ def test_replayed_revision_approval_is_idempotent(tmp_path: Path) -> None:
         event for event in repo.list_decisions("P1") if event.event_type == "artifact"
     ]
     assert len(artifact_events) == 2
+    reviews = [
+        ApprovalRecord.model_validate_json(event.payload)
+        for event in repo.list_decisions("P1")
+        if event.event_type == "revision_review"
+    ]
+    assert len(reviews) == 1
+    assert reviews[0].actor == "QA"
+    assert reviews[0].target_version == 2
+    assert f"diff:{draft.diff_hash}" in reviews[0].reviewed_evidence
+    assert not [event for event in repo.list_decisions("P1") if event.event_type == "approval"]
+
+
+def test_revision_approval_does_not_outlive_its_requirement_baseline(tmp_path: Path) -> None:
+    service, repo, _original = prepared(tmp_path)
+    requirement = Requirement(
+        id="R-LOGIN",
+        version=1,
+        statement="Login rule",
+        source_references=(SourceReference(document_id="BRD", start_line=1, end_line=1),),
+    )
+    repo.save_requirement_version("P1", requirement, idempotency_key="rule1")
+    draft = service.prepare_revision(
+        "Change only TC-012 priority to CRITICAL.",
+        "CASES-1",
+        requirement_versions={"R-LOGIN": 1},
+    )
+    repo.save_requirement_version(
+        "P1",
+        requirement.model_copy(update={"version": 2, "statement": "Changed login rule"}),
+        idempotency_key="rule2",
+    )
+    with pytest.raises(ValueError, match="baseline changed"):
+        service.commit_revision(
+            draft,
+            RevisionApproval(
+                approved=True,
+                actor="QA",
+                reviewed_diff_hash=draft.diff_hash,
+            ),
+        )
+    assert repo.read_artifact_version("P1", "CASES-1").version == 1
+    assert not service.artifact_path("CASES-1", 2).exists()

@@ -28,6 +28,7 @@ class RequirementChange(Record):
     to_version: int = Field(ge=2)
     before_statement: str = Field(min_length=1)
     after_statement: str = Field(min_length=1)
+    changed_fields: tuple[str, ...] = ()
     traced_artifacts: tuple[ArtifactDependency, ...] = ()
     semantic_dependencies: tuple[SemanticDependency, ...] = ()
 
@@ -35,7 +36,7 @@ class RequirementChange(Record):
     def version_advances(self) -> "RequirementChange":
         if self.to_version <= self.from_version:
             raise ValueError("requirement version must advance")
-        if self.before_statement == self.after_statement:
+        if self.before_statement == self.after_statement and not self.changed_fields:
             raise ValueError("requirement change needs different statements")
         return self
 

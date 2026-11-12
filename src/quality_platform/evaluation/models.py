@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from quality_platform.domain.models import SourceReference
+from quality_platform.domain.models import Requirement, SourceReference
 from quality_platform.llm.registry import AgentRole
 
 
@@ -42,6 +42,8 @@ class ExpectedItem(EvalRecord):
     kind: str = Field(min_length=1)
     source_references: tuple[SourceReference, ...] = ()
     semantic_alternatives: tuple[str, ...] = ()
+    semantic_definition: str | None = Field(default=None, min_length=1)
+    accepted_contents: tuple[str, ...] = ()
 
 
 class GoldReview(EvalRecord):
@@ -76,6 +78,9 @@ class BenchmarkCase(EvalRecord):
     severity: Severity
     origin: Literal["synthetic", "real_world"] = "synthetic"
     gold: GoldRecord
+    planner_requirements: tuple[Requirement, ...] = ()
+    planner_scope_id: str = "BENCHMARK"
+    policy_test_ids: tuple[str, ...] = ()
 
 
 class Dataset(EvalRecord):
@@ -103,13 +108,52 @@ class ObservedItem(EvalRecord):
     id: str = Field(min_length=1)
     kind: str = Field(min_length=1)
     source_references: tuple[SourceReference, ...] = ()
+    content: str = ""
+    semantic_context: str = ""
+
+
+class SemanticJudgment(EvalRecord):
+    expected_item_id: str
+    observed_item_id: str
+    equivalent: bool
+    review_required: bool = True
+    uncertainty: float = Field(ge=0, le=1)
+
+
+class MetricReview(EvalRecord):
+    score: float = Field(ge=0, le=1)
+    review_required: bool
+    uncertainty: float = Field(ge=0, le=1)
+    rationale: str = Field(min_length=1)
+
+
+class PlannerReview(EvalRecord):
+    expected_result_correctness: MetricReview
+    executability: MetricReview
+    redundancy: MetricReview  # Fraction redundant; lower is better.
+    detailed_gherkin_agreement: MetricReview
+
+
+class EvaluatorAssessment(EvalRecord):
+    case_id: str
+    model_snapshot_id: str = Field(min_length=1)
+    reviewed_at: AwareDatetime = Field(default_factory=lambda: datetime.now(UTC))
+    rating: int = Field(ge=1, le=5)
+    critical: bool
+    uncertainty: float = Field(ge=0, le=1)
+    judgments: tuple[SemanticJudgment, ...]
+    planner_review: PlannerReview | None = None
 
 
 class EvaluationOutput(EvalRecord):
     observed_items: tuple[ObservedItem, ...] = ()
     actions: tuple[str, ...] = ()
     workflow_state: str | None = None
+    evaluator_assessment: EvaluatorAssessment | None = None
     raw_text: str | None = Field(default=None, exclude=True, repr=False)
+    requirement_coverage: float | None = Field(default=None, ge=0, le=1)
+    schema_valid: bool | None = None
+    policy_observation_complete: bool = True
 
 
 class CaseScore(EvalRecord):
@@ -121,6 +165,9 @@ class CaseScore(EvalRecord):
     unsupported_source_count: int = Field(ge=0)
     critical_violation: bool
     findings: tuple[str, ...] = ()
+    planner_metrics: dict[str, float] = Field(default_factory=dict)
+    observed_actions: tuple[str, ...] = ()
+    observed_workflow_state: str | None = None
 
 
 class GoldRequirement(EvalRecord):
@@ -176,6 +223,59 @@ class CandidateSnapshot(EvalRecord):
     prompt_snapshot_id: str = Field(min_length=1)
 
 
+class RepeatResult(EvalRecord):
+    run_id: str
+    case_scores: tuple[CaseScore, ...]
+    overall_precision: float = Field(ge=0, le=1)
+    overall_recall: float = Field(ge=0, le=1)
+    decision: ReleaseDecision
+    evaluator_assessments: tuple[EvaluatorAssessment, ...] = ()
+
+
+class ProductivityEvidence(EvalRecord):
+    equivalent_task_id: str = Field(min_length=1)
+    acceptance_criteria_id: str = Field(min_length=1)
+    manual_task_id: str = Field(min_length=1)
+    assisted_task_id: str = Field(min_length=1)
+    accepted_artifact_ids: tuple[str, ...] = Field(min_length=1)
+    accepted_by: str = Field(min_length=1)
+    evidence_references: tuple[str, ...] = Field(min_length=1)
+    active_qa_minutes: float = Field(ge=0)
+    manual_baseline_minutes: float = Field(gt=0)
+    human_review_minutes: float = Field(ge=0)
+    rework_minutes: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def active_time_includes_review_and_rework(self) -> "ProductivityEvidence":
+        if self.active_qa_minutes < self.human_review_minutes + self.rework_minutes:
+            raise ValueError("active QA time must include human review and rework time")
+        if self.manual_task_id == self.assisted_task_id:
+            raise ValueError("manual and assisted task executions need distinct identities")
+        return self
+
+
+class SuiteTestResult(EvalRecord):
+    test_id: str
+    suite: str
+    outcome: Literal["passed", "failed", "error", "skipped"]
+    duration_seconds: float = Field(ge=0)
+
+
+class WorkflowSuiteEvidence(EvalRecord):
+    benchmark_binding: str
+    source_fingerprint: str
+    source_manifest: dict[str, str]
+    commit_sha: str
+    started_at: AwareDatetime
+    completed_at: AwareDatetime
+    command: tuple[str, ...]
+    suites: tuple[str, ...]
+    exit_code: int
+    test_results: tuple[SuiteTestResult, ...]
+    junit_path: str
+    junit_sha256: str
+
+
 class BenchmarkReport(EvalRecord):
     run_id: str = Field(min_length=1)
     generated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -198,4 +298,19 @@ class BenchmarkReport(EvalRecord):
     failure_case_ids: tuple[str, ...] = ()
     readiness_labels: tuple[str, ...] = ()
     input_fingerprint: str = ""
+    output_fingerprint: str = ""
     evaluated_case_ids: tuple[str, ...] = ()
+    evaluator_assessments: tuple[EvaluatorAssessment, ...] = ()
+    repeat_results: tuple[RepeatResult, ...] = ()
+    metric_variance: dict[str, float] = Field(default_factory=dict)
+    productivity_evidence: ProductivityEvidence | None = None
+    code_fingerprint: str = ""
+    workflow_suite_evidence: WorkflowSuiteEvidence | None = None
+    policy_suite_tests: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    policy_case_results: dict[str, ReleaseDecision] = Field(default_factory=dict)
+    review_packet_path: str | None = None
+    review_packet_sha256: str | None = None
+    # Kept only until the private review packet is written, never in score exports.
+    review_outputs: tuple[dict[str, EvaluationOutput], ...] = Field(
+        default=(), exclude=True, repr=False
+    )

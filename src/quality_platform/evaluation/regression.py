@@ -54,6 +54,7 @@ def decide_regression(
     thresholds: QualityThresholds,
 ) -> RegressionDecision:
     critical_failure = any(score.critical_violation for score in candidate.case_scores)
+    candidate_blocked = candidate.decision == ReleaseDecision.BLOCKED
     version_reasons: list[str] = []
     if candidate.dataset_version != latest_approved.dataset_version:
         version_reasons.append("dataset version changed; re-evaluate the approved comparator")
@@ -73,7 +74,9 @@ def decide_regression(
             version_reasons.insert(0, "critical hard-gate violation cannot be averaged or excepted")
         return RegressionDecision(
             decision=(
-                ReleaseDecision.BLOCKED if critical_failure else ReleaseDecision.REVIEW_REQUIRED
+                ReleaseDecision.BLOCKED
+                if critical_failure or candidate_blocked
+                else ReleaseDecision.REVIEW_REQUIRED
             ),
             candidate_run_id=candidate.run_id,
             baseline_run_id=latest_approved.run_id,
@@ -123,7 +126,7 @@ def decide_regression(
     if baseline_regressions:
         reasons.append("latest approved baseline regressed: " + ", ".join(baseline_regressions))
 
-    if critical_failure:
+    if critical_failure or candidate_blocked:
         decision = ReleaseDecision.BLOCKED
     elif candidate.decision == ReleaseDecision.APPROVED_EXCEPTION:
         decision = ReleaseDecision.APPROVED_EXCEPTION

@@ -10,6 +10,19 @@ synthetic-first: no private real-world fixtures are committed, numeric quality g
 illustrative, and release readiness is not claimed until approved real cases and calibrated human
 review evidence exist.
 
+Evaluation now preserves semantic content, rejects source/ID-only semantic matches, runs production
+Analyst/Planner task adapters with a static evaluator role, and saves per-repeat scores and variance.
+Explicit offline CLI commands capture independent human ratings, calculate evaluator calibration,
+compare minimum gates/latest-approved baseline, record release review, and promote only explicitly
+approved evidence. Equivalent-task productivity requires acceptance identities and review/rework time.
+The existing gold approvals were not changed: approved `v0.1` cases without semantic definitions
+fail closed for human review. Tier 3 remains a task benchmark, not per-case full workflow E2E.
+`benchmark capture-workflow-evidence` actually runs the offline workflow/policy suites;
+`benchmark attach-workflow-evidence` binds their JUnit results and current source fingerprint to
+the report. Release/promotion revalidate this evidence: stale or incomplete results cannot clear
+`E2E_WORKFLOW_EVIDENCE_MISSING`, and failed policy tests are `BLOCKED`. See
+[benchmarking and explicit release commands](docs/benchmarking.md) for the evidence path and limits.
+
 ## Setup
 
 ```bash
