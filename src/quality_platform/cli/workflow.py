@@ -8,20 +8,17 @@ from typing import Annotated
 
 import typer
 
+from quality_platform.application import WorkflowApplication
 from quality_platform.cli.commands import _repository, _selected_project
 from quality_platform.config.loader import load_config
 from quality_platform.rendering.test_cases import (
     RenderingStyle,
     _atomic_write,
-    write_test_case_artifacts,
 )
-from quality_platform.services.approvals import BaselineSelection
-from quality_platform.services.revisions import RevisionApproval, RevisionDraft, RevisionService
+from quality_platform.services.revisions import RevisionDraft
 from quality_platform.services.scopes import ScopeEdit, ScopeService, propose_scope_edit
 from quality_platform.storage.checkpoints import create_checkpoint_saver
 from quality_platform.workflows.execution import WorkflowExecution, configure_execution
-from quality_platform.workflows.gates import ReviewTarget
-from quality_platform.workflows.graph import WorkflowRuntime, WorkflowServices
 
 
 def register_workflow_commands(
@@ -60,8 +57,8 @@ def run_workflow(
 
         async def run() -> list[dict[str, object]]:
             async with create_checkpoint_saver(checkpoint_database) as saver:
-                execution = WorkflowExecution(repo, project_id, workflow_id, saver)
-                results = await execution.run(instruction, request_id, style=style)
+                application = WorkflowApplication(repo, project_id, workflow_id, saver)
+                results = await application.run(instruction, request_id, style=style)
                 return [item.model_dump(mode="json") for item in results]
 
         results = asyncio.run(run())
@@ -86,7 +83,7 @@ def inspect_workflow(
     workflow_id: Annotated[str, typer.Option()],
     project_id: Annotated[str | None, typer.Option()] = None,
 ) -> None:
-    with _repository(database) as repo:
+    with _repository(database, read_only=True) as repo:
         project_id = _selected_project(database, repo, project_id)
         item = repo.read_workflow(project_id, workflow_id)
         if item.project_id != project_id:
@@ -105,7 +102,7 @@ def list_impact(
     database: Annotated[Path, typer.Option()],
     project_id: Annotated[str | None, typer.Option()] = None,
 ) -> None:
-    with _repository(database) as repo:
+    with _repository(database, read_only=True) as repo:
         project_id = _selected_project(database, repo, project_id)
         for event in repo.list_decisions(project_id):
             if event.event_type == "impact":
@@ -117,7 +114,7 @@ def list_scopes(
     workflow_id: Annotated[str, typer.Option()],
     project_id: Annotated[str | None, typer.Option()] = None,
 ) -> None:
-    with _repository(database) as repo:
+    with _repository(database, read_only=True) as repo:
         project_id = _selected_project(database, repo, project_id)
         for item in ScopeService(
             repo, project_id=project_id, workflow_id=workflow_id
@@ -139,18 +136,8 @@ def approve_baseline(
             async with create_checkpoint_saver(
                 database.with_suffix(".checkpoints.sqlite")
             ) as saver:
-                execution = WorkflowExecution(repo, project_id, workflow_id, saver)
-                versions = execution.scope_versions(scope_id)
-                sources = repo.read_workflow(project_id, workflow_id).source_snapshot_ids
-                result = execution.approvals.approve_scope_baseline(
-                    scope_id,
-                    BaselineSelection(
-                        requirement_versions=versions,
-                        source_snapshot_ids=sources,
-                        human_reviewed=True,
-                    ),
-                    actor,
-                )
+                application = WorkflowApplication(repo, project_id, workflow_id, saver)
+                result = application.approve_baseline(scope_id, actor)
                 if not result.approved:
                     raise typer.BadParameter("; ".join(result.reasons))
                 return result.model_dump_json(indent=2)
@@ -171,23 +158,8 @@ def submit_review(
 
         async def submit() -> str:
             async with create_checkpoint_saver(checkpoint_database) as saver:
-                execution = WorkflowExecution(repo, project_id, workflow_id, saver)
-                item = execution.prepare_review(artifact_id, baseline_id)
-                runtime = WorkflowRuntime(
-                    WorkflowServices(
-                        repo,
-                        project_id,
-                        ReviewTarget(
-                            id=item.id,
-                            version=item.version,
-                            scope_id=item.scope_id,
-                            baseline_id=item.requirement_baseline_id,
-                        ),
-                        execution.approvals,
-                    ),
-                    saver,
-                )
-                result = await runtime.run_workflow(workflow_id)
+                application = WorkflowApplication(repo, project_id, workflow_id, saver)
+                result = await application.submit_review(artifact_id, baseline_id)
                 return result.model_dump_json(indent=2)
 
         typer.echo(asyncio.run(submit()))
@@ -225,8 +197,8 @@ def apply_edit(
     actor: Annotated[str, typer.Option()],
     project_id: Annotated[str | None, typer.Option()] = None,
 ) -> None:
-    edit = ScopeEdit.model_validate_json(proposal.read_text())
     with _repository(database) as repo:
+        edit = ScopeEdit.model_validate_json(proposal.read_text())
         project_id = _selected_project(database, repo, project_id)
         result = ScopeService(repo, project_id=project_id, workflow_id=workflow_id).review_scope(
             edit.scope_id, edit.decision.model_copy(update={"human_reviewed": True, "actor": actor})
@@ -249,8 +221,8 @@ def propose_revision(
             async with create_checkpoint_saver(
                 database.with_suffix(".checkpoints.sqlite")
             ) as saver:
-                execution = WorkflowExecution(repo, project_id, workflow_id, saver)
-                return await execution.prepare_revision(instruction, artifact_id)
+                application = WorkflowApplication(repo, project_id, workflow_id, saver)
+                return await application.prepare_revision(instruction, artifact_id)
 
         draft = asyncio.run(propose())
         _atomic_write(output, draft.model_dump_json(indent=2))
@@ -277,50 +249,16 @@ def commit_revision(
     actor: Annotated[str, typer.Option()],
     project_id: Annotated[str | None, typer.Option()] = None,
 ) -> None:
-    from quality_platform.agents.planner import planning_requirements, validate_test_cases
-
-    item = RevisionDraft.model_validate_json(draft.read_text())
     with _repository(database) as repo:
+        item = RevisionDraft.model_validate_json(draft.read_text())
         project_id = _selected_project(database, repo, project_id)
 
         async def commit() -> str:
             async with create_checkpoint_saver(
                 database.with_suffix(".checkpoints.sqlite")
             ) as saver:
-                execution = WorkflowExecution(repo, project_id, workflow_id, saver)
-                artifact = execution.artifact(item.artifact_id)
-                versions = execution.scope_versions(artifact.scope_id)
-                if (
-                    item.requirement_versions != versions
-                    or item.source_snapshot_ids
-                    != repo.read_workflow(project_id, workflow_id).source_snapshot_ids
-                ):
-                    raise ValueError(
-                        "revision source baseline changed; prepare and review a new diff"
-                    )
-                eligible, _ = planning_requirements(execution.agent_context(), artifact.scope_id)
-                selected = tuple(
-                    requirement
-                    for requirement in eligible
-                    if requirement.id
-                    in {key for case in item.after.cases for key in case.requirement_ids}
-                )
-                validate_test_cases(list(item.after.cases), selected)
-                service = RevisionService(
-                    repo, project_id=project_id, workspace=execution.config.workspace_root
-                )
-                result = service.commit_revision(
-                    item,
-                    RevisionApproval(
-                        approved=True, actor=actor, reviewed_diff_hash=reviewed_diff_hash
-                    ),
-                )
-                repo.save_artifact_trace(project_id, result, versions, workflow_id=workflow_id)
-                write_test_case_artifacts(
-                    execution.artifact_directory(result.id, result.version),
-                    list(item.after.cases),
-                    execution.config.test_case_style,
-                )
+                application = WorkflowApplication(repo, project_id, workflow_id, saver)
+                result = application.commit_revision(item, reviewed_diff_hash, actor)
                 return result.model_dump_json(indent=2)
 
         typer.echo(asyncio.run(commit()))

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">EXECUTION JOURNAL</p>
+            <h1>Aktivitas</h1>
+            <p class="muted">Perintah tersimpan, status eksekusi, dan keputusan yang perlu ditinjau.</p>
+        </div>
+    </div>
+    <section class="panel">
+        {% for job in jobs %}
+            <a class="workflow-row" href="/jobs/{{ job.id }}">
+                <div>
+                    <strong>{{ job.command.kind|replace('_', ' ') |title }}</strong><span class="small mono">{{ job.command.project_id }} / {{ job.command.workflow_id or 'project' }} · {{ job.id[:8] }}</span>
+                </div>
+                <span class="badge {{ 'blocked' if job.status in ['BLOCKED','FAILED','INTERRUPTED'] else '' }}">{{ job.status }}</span><span aria-hidden="true">↗</span></a>
+        {% else %}
+            <div class="empty">
+                <h2>Belum ada aktivitas</h2>
+                <p class="muted">Perintah dari web akan tampil di sini. Membuka halaman tidak memanggil model.</p>
+            </div>
+        {% endfor %}
+    </section>
+{% endblock %}

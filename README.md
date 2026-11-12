@@ -35,9 +35,33 @@ Configuration fixes one provider/model per agent role (`orchestrator`, `analyst`
 `evaluator`). Provider credentials stay in environment variables and are never written to model
 snapshots or benchmark reports.
 
+## Web lokal
+
+Antarmuka web menambahkan satu akun pemilik, antrean persisten, dan worker lokal di atas aturan
+domain CLI yang sama. Alur HTTP/worker diuji offline di Linux; dukungan native Windows/macOS
+belum diverifikasi. CLI mandiri tetap tersedia.
+
+Siapkan YAML sesuai [panduan CLI](docs/cli.md), lalu jalankan inisialisasi dan dua proses terpisah:
+
+```bash
+uv run qa-web init --config /absolute/config.yaml --state /absolute/web-state --owner qa
+uv run qa-web worker --state /absolute/web-state
+# Jalankan di terminal lain; default hanya mendengarkan loopback:
+uv run qa-web serve --state /absolute/web-state --port 8000
+```
+
+`init` meminta kata sandi dan konfirmasinya secara privat. Kredensial provider hanya berada di
+environment proses server/worker, bukan formulir web atau kode. Menyalakan layanan tidak boleh
+otomatis menjalankan panggilan berbayar; run live memerlukan konfirmasi. **Workflow belum memiliki
+batas biaya moneter**; resume pekerjaan terputus harus eksplisit dan dapat menagih provider lagi.
+Saat worker memegang lock penulis database, mutasi lewat CLI dilarang; pembacaan CLI tetap diizinkan.
+Lihat [panduan web](docs/web.md) untuk approval, restart, backup, dan batas akses remote.
+
 ## Documentation
 
 - [CLI workflows](docs/cli.md)
+- [Penggunaan web lokal](docs/web.md)
+- [Addendum spesifikasi web](docs/superpowers/specs/2026-11-12-quality-platform-web-addendum.md)
 - [Benchmarking and release readiness](docs/benchmarking.md)
 
 Tier 2 and Tier 3 invoke paid model APIs only through explicit commands with a confirmed cost cap.

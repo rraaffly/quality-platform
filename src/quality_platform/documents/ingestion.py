@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
+
+from sqlalchemy.exc import NoResultFound
 
 from quality_platform.documents.markdown import parse_markdown
 from quality_platform.domain.models import SourceDocument
@@ -19,7 +21,12 @@ def _document_type(path: Path) -> str:
 
 
 def ingest_markdown(
-    project_id: str, paths: list[Path], repo: QaRepositories, workspace: Path
+    project_id: str,
+    paths: list[Path],
+    repo: QaRepositories,
+    workspace: Path,
+    *,
+    idempotency_key: str | None = None,
 ) -> list[SourceDocument]:
     workspace_root = workspace.resolve()
     project_root = repo.read_project_record(project_id, project_id).root.resolve()
@@ -41,9 +48,13 @@ def ingest_markdown(
         prepared.append((resolved, raw, content))
 
     documents: list[SourceDocument] = []
-    for source_path, raw, content in prepared:
+    for index, (source_path, raw, content) in enumerate(prepared):
         snapshot_path, digest = publish_source_snapshot(project_root, raw)
-        source_id = str(uuid4())
+        source_id = (
+            str(uuid5(NAMESPACE_URL, f"{project_id}:{idempotency_key}:{index}"))
+            if idempotency_key
+            else str(uuid4())
+        )
         blocks = parse_markdown(content, source_id)
         document = SourceDocument(
             id=source_id,
@@ -55,6 +66,12 @@ def ingest_markdown(
             line_count=len(content.splitlines()),
             headings=tuple(block.headings[-1] for block in blocks if block.kind == "heading"),
         )
-        repo.save_source_document(document)
+        try:
+            previous = repo.read_source_document(project_id, source_id)
+        except NoResultFound:
+            repo.save_source_document(document)
+        else:
+            if previous != document:
+                raise ValueError("source import key reused with different content")
         documents.append(document)
     return documents

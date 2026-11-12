@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">CONFIGURATION</p>
+            <h1>Pengaturan model</h1>
+            <p class="muted">Satu model eksplisit per agent. Tanpa routing atau fallback otomatis.</p>
+        </div>
+        <span class="badge">Versioned settings</span>
+    </div>
+    <p class="alert">Perubahan hanya berlaku untuk workflow baru. Workflow yang ada tetap memakai snapshot aslinya.</p>
+    <form class="settings-form" method="post" action="/api/settings">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="command_key" value="settings-{{ key }}">
+        <section class="panel">
+            <h2>Model per agent</h2>
+            <p class="small muted">Model ID harus mendukung structured output. Menyimpan pengaturan tidak menghubungi provider.</p>
+            {% for role, model in settings.agent_models.model_dump().items() %}
+                <div class="settings-row">
+                    <div>
+                        <h3>{{ role|title }}</h3>
+                        <p class="small muted">
+                            {{ 'Menafsirkan instruksi dan mengusulkan tugas' if role == 'orchestrator' else 'Requirement dan evidence' if role == 'analyst' else 'Test plan dan test cases' if role == 'planner' else 'Logical role evaluasi terpisah' }}
+                        </p>
+                    </div>
+                    <label>
+                        Provider
+                        <select name="{{ role }}_provider">
+                            {% for provider in ['openai','anthropic','google'] %}
+                                <option value="{{ provider }}"
+                                        {% if provider == model.provider %}selected{% endif %}>{{ provider }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>
+                        Model ID
+                        <input name="{{ role }}_model_id" required value="{{ model.model_id }}">
+                    </label>
+                </div>
+            {% endfor %}
+        </section>
+        <section class="panel section">
+            <h2>Default workflow</h2>
+            <div class="form-grid">
+                <label>
+                    Max concurrency
+                    <input type="number"
+                           name="max_concurrency"
+                           min="1"
+                           max="16"
+                           value="{{ settings.max_concurrency }}"
+                           required>
+                </label>
+                <label>
+                    Format test case
+                    <select name="test_case_style">
+                        {% for style in ['both','detailed','gherkin'] %}
+                            <option {% if style == settings.test_case_style %}selected{% endif %}>{{ style }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+            <button type="submit">Simpan versi pengaturan baru</button>
+            <p class="small mono muted">Versi aktif: {{ settings_id }}</p>
+        </section>
+    </form>
+    <section class="panel section">
+        <h2>Koneksi API</h2>
+        <p class="muted">
+            Credential dipasok melalui environment server. Nilai key tidak ditampilkan atau disimpan melalui browser.
+        </p>
+        <div class="credential-grid">
+            {% for provider, configured in credentials.items() %}
+                <div>
+                    <h3>{{ provider }}</h3>
+                    <span class="badge {{ '' if configured else 'blocked' }}">{{ 'Configured' if configured else 'Missing credential' }}</span>
+                </div>
+            {% endfor %}
+        </div>
+        <p class="small muted">
+            Configured hanya berarti variabel tersedia, bukan bukti key valid. Penggantian environment membutuhkan restart service.
+        </p>
+    </section>
+    <section class="panel section">
+        <h2>Biaya & batas penggunaan</h2>
+        <p>Biaya workflow belum terukur. Tidak ada hard cap moneter aplikasi.</p>
+        <p class="muted">
+            Harga benchmark dan budget benchmark tetap dikelola melalui CLI. Temperature, max output tokens, timeout, dan retry policy belum tersedia sebagai pengaturan web.
+        </p>
+    </section>
+{% endblock %}

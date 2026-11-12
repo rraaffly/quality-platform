@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+    <section class="panel empty">
+        <p class="eyebrow">TINDAKAN TIDAK DITERAPKAN</p>
+        <h1>Periksa kembali permintaan</h1>
+        <p class="alert danger" role="alert">{{ error }}</p>
+        <p class="muted">Muat ulang workflow untuk meninjau versi dan prasyarat terbaru. Tidak ada approval otomatis.</p>
+        <a class="button secondary" href="/projects">Kembali ke projects</a>
+    </section>
+{% endblock %}

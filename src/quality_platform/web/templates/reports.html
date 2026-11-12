@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">EVALUATION</p>
+            <h1>Benchmark reports</h1>
+            <p class="muted">Laporan terdaftar, read-only. Tidak ada benchmark berbayar yang dijalankan dari halaman ini.</p>
+        </div>
+        <span class="badge">Read-only</span>
+    </div>
+    {% for entry in reports %}
+        <section class="panel">
+            <div class="card-heading">
+                <h2>{{ entry.report.run_id }}</h2>
+                <span class="badge">{{ entry.report.decision }}</span>
+            </div>
+            <p>Project {{ entry.project_id }} · Dataset {{ entry.report.dataset_version }}</p>
+            <pre>{{ entry.report|tojson(indent=2) }}</pre>
+        </section>
+    {% else %}
+        <section class="panel empty">
+            <span class="empty-mark" aria-hidden="true">▤</span>
+            <h2>Belum ada laporan terdaftar</h2>
+            <p class="muted">
+                Daftarkan laporan benchmark lokal melalui CLI web. Laporan tidak dipindai dari arbitrary path browser.
+            </p>
+            <p class="small muted">Dashboard bukan bukti kalibrasi evaluator atau release readiness.</p>
+        </section>
+    {% endfor %}
+{% endblock %}

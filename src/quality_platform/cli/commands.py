@@ -3,18 +3,17 @@ import json
 import os
 import tempfile
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from pydantic import BaseModel, ConfigDict
 
+from quality_platform import application
 from quality_platform.config.loader import load_config
 from quality_platform.domain.models import (
-    ProjectRecord,
     StakeholderAnswer,
-    WorkflowRecord,
     WorkflowStatus,
 )
 from quality_platform.evaluation.models import BenchmarkReport
@@ -26,6 +25,7 @@ from quality_platform.services.clarifications import ClarificationService
 from quality_platform.services.scopes import ScopeAction, ScopeDecision, ScopeService
 from quality_platform.storage.checkpoints import create_checkpoint_saver
 from quality_platform.storage.database import open_database
+from quality_platform.storage.ownership import open_read_only_database, writer_lock
 from quality_platform.storage.repositories import QaRepositories
 from quality_platform.workflows.gates import HumanResponse, ReviewTarget
 from quality_platform.workflows.graph import WorkflowRuntime, WorkflowServices
@@ -45,12 +45,13 @@ class SelectedProject(BaseModel):
 
 
 @contextmanager
-def _repository(database: Path) -> Iterator[QaRepositories]:
-    engine = open_database(database)
-    try:
-        yield QaRepositories(engine)
-    finally:
-        engine.dispose()
+def _repository(database: Path, *, read_only: bool = False) -> Iterator[QaRepositories]:
+    with nullcontext() if read_only else writer_lock(database):
+        engine = open_read_only_database(database) if read_only else open_database(database)
+        try:
+            yield QaRepositories(engine)
+        finally:
+            engine.dispose()
 
 
 def _selection_path(database: Path) -> Path:
@@ -100,13 +101,13 @@ def create_project(
     root: Annotated[Path, typer.Option()],
 ) -> None:
     with _repository(database) as repo:
-        created = repo.create_project(ProjectRecord(id=project_id, name=name, root=root.resolve()))
+        created = application.create_project(repo, project_id, name, root)
     typer.echo(f"{created.id}: {created.name}")
 
 
 @project.command("list")
 def list_projects(database: Annotated[Path, typer.Option(help="Domain database path")]) -> None:
-    with _repository(database) as repo:
+    with _repository(database, read_only=True) as repo:
         items = repo.list_projects()
     for item in items:
         typer.echo(f"{item.id}\t{item.name}\t{item.root}")
@@ -117,7 +118,7 @@ def select_project(
     database: Annotated[Path, typer.Option(help="Domain database path")],
     project_id: Annotated[str, typer.Option()],
 ) -> None:
-    with _repository(database) as repo:
+    with _repository(database, read_only=True) as repo:
         selected = repo.read_project_record(project_id, project_id)
     _write_selection(database, SelectedProject(project_id=selected.id))
     typer.echo(f"selected project {selected.id}")
@@ -141,21 +142,15 @@ def start_workflow(
         raise typer.BadParameter("--config is required with --source")
     with _repository(database) as repo:
         active_project = _selected_project(database, repo, project_id)
-        created = repo.create_workflow(
-            WorkflowRecord(
-                id=workflow_id,
-                project_id=active_project,
-                goal=goal,
-                thread_id=thread_id or f"thread-{workflow_id}",
-                status=WorkflowStatus.ACTIVE,
-            )
+        created = application.create_workflow(
+            repo,
+            active_project,
+            workflow_id,
+            goal,
+            config=load_config(config) if config is not None else None,
+            sources=source,
+            thread_id=thread_id,
         )
-        if config is not None:
-            from quality_platform.workflows.execution import configure_execution
-
-            configure_execution(
-                repo, active_project, workflow_id, load_config(config), source or []
-            )
     typer.echo(f"{created.id}: {created.status}")
 
 
@@ -164,7 +159,7 @@ def list_workflows(
     database: Annotated[Path, typer.Option(help="Domain database path")],
     project_id: Annotated[str | None, typer.Option()] = None,
 ) -> None:
-    with _repository(database) as repo:
+    with _repository(database, read_only=True) as repo:
         active_project = _selected_project(database, repo, project_id)
         items = repo.list_workflows(active_project)
     for item in items:
@@ -187,28 +182,19 @@ def resume_workflow(
     with _repository(database) as repo:
         active_project = _selected_project(database, repo, project_id)
         if request_id is not None:
-            from quality_platform.workflows.execution import IntentPlan, WorkflowExecution
-
             if checkpoint_database is None or artifact_id is not None:
                 raise typer.BadParameter(
                     "request resume needs --checkpoint-database and no --artifact-id"
                 )
-            plans = [
-                IntentPlan.model_validate_json(event.payload)
-                for event in repo.list_decisions(active_project)
-                if event.event_type == "task_plan" and event.record_id == workflow_id
-            ]
-            plan = next((item for item in plans if item.request_id == request_id), None)
-            if plan is None:
-                raise typer.BadParameter(
-                    "request plan not saved; rerun workflow run with the original instruction"
-                )
 
             async def resume_request() -> str:
                 async with create_checkpoint_saver(checkpoint_database) as saver:
-                    results = await WorkflowExecution(repo, active_project, workflow_id, saver).run(
-                        plan.instruction, request_id, style=plan.rendering_style
-                    )
+                    try:
+                        results = await application.WorkflowApplication(
+                            repo, active_project, workflow_id, saver
+                        ).resume(request_id)
+                    except ValueError as error:
+                        raise typer.BadParameter(str(error)) from error
                     return json.dumps([item.model_dump(mode="json") for item in results], indent=2)
 
             typer.echo(asyncio.run(resume_request()))
@@ -255,7 +241,7 @@ def list_clarifications(
     workflow_id: Annotated[str, typer.Option()],
     project_id: Annotated[str | None, typer.Option()] = None,
 ) -> None:
-    with _repository(database) as repo:
+    with _repository(database, read_only=True) as repo:
         active_project = _selected_project(database, repo, project_id)
         items = ClarificationService(
             repo, project_id=active_project, workflow_id=workflow_id
@@ -332,7 +318,7 @@ def show_artifact(
     artifact_id: Annotated[str, typer.Option()],
     project_id: Annotated[str | None, typer.Option()] = None,
 ) -> None:
-    with _repository(database) as repo:
+    with _repository(database, read_only=True) as repo:
         active_project = _selected_project(database, repo, project_id)
         item = repo.read_artifact_version(active_project, artifact_id)
     typer.echo(item.model_dump_json(indent=2))

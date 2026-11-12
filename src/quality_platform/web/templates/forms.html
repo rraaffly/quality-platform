@@ -1,0 +1,15 @@
+{% macro hidden(kind, project='', workflow='', target='', state_hash='', suffix='') -%}
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="command_key" value="{{ key }}{{ suffix }}">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    {% if project %}<input type="hidden" name="project_id" value="{{ project }}">{% endif %}
+    {% if workflow %}<input type="hidden" name="workflow_id" value="{{ workflow }}">{% endif %}
+    {% if target %}<input type="hidden" name="target_id" value="{{ target }}">{% endif %}
+    {% if state_hash %}<input type="hidden" name="state_hash" value="{{ state_hash }}">{% endif %}
+{%- endmacro %}
+{% macro cost(label='Saya mengizinkan penggunaan API berbayar untuk perintah ini.') -%}
+    <label class="check">
+        <input type="checkbox" name="confirm_cost" value="true" required>
+        <span>{{ label }} Biaya belum terukur dan tidak mempunyai hard cap aplikasi.</span>
+    </label>
+{%- endmacro %}
