@@ -12,6 +12,7 @@
     "check": "oxfmt --check ."
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "@tanstack/react-devtools": "0.10.14",
     "@tanstack/react-form": "1.33.5",
     "@tanstack/react-router": "1.170.46",
