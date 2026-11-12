@@ -22,3 +22,7 @@ tests/tmp_run/
 benchmarks/reports/
 benchmarks/datasets/real_world/
 benchmarks/ground_truth/real_world/
+
+# Web
+.tanstack
+node_modules/
