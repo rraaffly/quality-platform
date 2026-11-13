@@ -16,9 +16,11 @@ from quality_platform.evaluation.calibration import Review
 from quality_platform.evaluation.models import (
     BenchmarkReport,
     EvalRecord,
+    GoldStatus,
     ProductivityEvidence,
     ReleaseDecision,
 )
+from quality_platform.evaluation.registry import load_dataset
 from quality_platform.evaluation.regression import (
     BaselineApproval,
     BaselineApprovalStatus,
@@ -43,7 +45,14 @@ from quality_platform.evaluation.reporting import (
     validate_review_packet,
     write_report,
 )
-from quality_platform.evaluation.runner import run_full_benchmark, run_live_benchmark
+from quality_platform.evaluation.runner import (
+    _case_lines,
+    _load_live_config,
+    _repository_root,
+    _select_live_cases,
+    run_full_benchmark,
+    run_live_benchmark,
+)
 from quality_platform.evaluation.workflow_evidence import (
     attach_workflow_evidence,
     capture_workflow_suite,
@@ -93,6 +102,41 @@ class EvaluationRunCommand(BaseModel):
         if self.tier == 2 and self.repeats != 1:
             raise ValueError("Tier 2 runs once")
         return self
+
+
+class EvaluationEstimateQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tier: int = Field(ge=2, le=3)
+    dataset_version: str = Field(pattern=r"^v[0-9]+(?:\.[0-9]+)*$")
+    agent_role: Literal["analyst", "planner"] = "analyst"
+    repeats: int = Field(default=1, ge=1, le=5)
+
+
+def estimate_benchmark(query: EvaluationEstimateQuery) -> dict[str, int | float]:
+    """Quote the runner's required reservation before any provider call."""
+    root = _repository_root()
+    config, _ = _load_live_config(root, f"tier{query.tier}")
+    if query.tier == 2 and query.repeats != 1:
+        raise ValueError("Tier 2 runs once")
+    if query.repeats > config.max_repeats:
+        raise ValueError("Repeat count exceeds benchmark configuration")
+    dataset = load_dataset(query.dataset_version, root / "benchmarks")
+    selected = _select_live_cases(
+        dataset,
+        AgentRole(query.agent_role),
+        representative_case_ids=config.representative_case_ids,
+        full_dataset=query.tier == 3,
+    )
+    if not selected:
+        raise ValueError("No approved benchmark cases match the selected role")
+    return {
+        "case_count": len(selected),
+        "repeats": query.repeats,
+        "provider_calls": len(selected) * query.repeats * 2,
+        "reservation_usd": len(selected) * query.repeats * 2 * config.max_case_cost_usd,
+        "maximum_usd": config.max_budget_usd,
+    }
 
 
 class EvaluationActionCommand(BaseModel):
@@ -239,6 +283,24 @@ def review_packet(control: Control, project_id: str, report_id: str) -> dict:
         raise PermissionError("Review packet is outside the local evaluation state")
     packet = validate_review_packet(report)
     return packet.model_dump(mode="json", exclude_none=True)
+
+
+def review_context(control: Control, project_id: str, report_id: str) -> dict[str, object]:
+    """Serve hash-checked inputs and approved gold without evaluator assessments."""
+    report = web_report(control, project_id, report_id)
+    root = _repository_root()
+    dataset = load_dataset(report.dataset_version, root / "benchmarks")
+    by_id = {case.case_id: case for case in dataset.cases}
+    cases: dict[str, object] = {}
+    for case_id in report.evaluated_case_ids:
+        case = by_id.get(case_id)
+        if case is None or case.gold.status != GoldStatus.APPROVED:
+            raise ValueError("Report case lacks matching approved gold")
+        cases[case_id] = {
+            "sources": _case_lines(root, case),
+            "expected_items": [item.model_dump(mode="json") for item in case.gold.expected_items],
+        }
+    return {"dataset_version": report.dataset_version, "cases": cases}
 
 
 async def execute_action(

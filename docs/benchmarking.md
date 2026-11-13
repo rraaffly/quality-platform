@@ -10,11 +10,13 @@ The authenticated Web app owns the evaluation workflow. Open **Reports** to star
 
 The browser requires the owner to choose the dataset version, pinned settings, repeat count, token rates for Analyst, Planner and evaluator, a maximum USD cost, and paid-run confirmation. Model routing uses one configured model per role, without fallback. The shared cost ledger reserves each candidate and evaluator call before invocation. Credentials stay in the worker environment. Starting or reading the app never initiates a paid benchmark.
 
+Use **Calculate cost reservation** before confirmation. The Web quote reads the same approved dataset and tier configuration as the runner, showing selected cases, provider calls and the required reservation. The confirmed cap must cover that reservation and stay within the tier maximum. The quote is a reservation bound based on configured per-call costs; recorded usage cost uses the declared token rates.
+
 ## Approved gold and private packets
 
 Gold is separate from candidates and usable only after explicit approval. A matching ID, issue kind, or source line cannot stand in for a semantic match. `ExpectedItem.semantic_definition` and approved equivalent content define the intended meaning. Nonexact matches require evaluator judgment and human adjudication. The checked-in `v0.1` dataset lacks semantic definitions in its two approved cases; those cases remain review-required.
 
-Input snapshots are confined to the dataset root and checked against pinned SHA-256 values. Reports keep case scores, input/output fingerprints, cost, static model identity and readiness labels, without raw private source content. A private packet contains the exact candidate outputs for blind human review, without AI ratings. The server checks its hash, run/case/repeat identity and output fingerprint before serving it to the owner. Keep the state directory private and include it in a consistent backup.
+Input snapshots are confined to the dataset root and checked against pinned SHA-256 values. Reports keep case scores, input/output fingerprints, cost, static model identity and readiness labels, without raw private source content. A private packet contains the exact candidate outputs for blind human review, without AI ratings. The reviewer page also serves the hash-checked input snapshots and approved gold for those cases. The server checks the packet hash, run/case/repeat identity and output fingerprint before serving it to the owner. Keep the state directory private and include it in a consistent backup.
 
 ## Evidence and human decision
 

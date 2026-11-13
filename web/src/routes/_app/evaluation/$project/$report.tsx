@@ -11,6 +11,13 @@ type Packet = {
   repeat_run_ids: string[];
   outputs: Array<Record<string, { observed_items: ObservedItem[] }>>;
 };
+type ReviewContext = {
+  dataset_version: string;
+  cases: Record<string, {
+    sources: Record<string, string[]>;
+    expected_items: Array<{ id: string; kind: string; semantic_definition?: string; accepted_contents?: string[] }>;
+  }>;
+};
 
 export const Route = createFileRoute("/_app/evaluation/$project/$report")({
   component: ReviewPage,
@@ -20,6 +27,9 @@ function ReviewPage() {
   const { project, report } = Route.useParams();
   const packet = useResource<Packet>(
     `/api/projects/${encodeURIComponent(project)}/evaluation/${encodeURIComponent(report)}/review-packet`,
+  );
+  const context = useResource<ReviewContext>(
+    `/api/projects/${encodeURIComponent(project)}/evaluation/${encodeURIComponent(report)}/review-context`,
   );
   const action = useAction();
   const caseIds = Object.keys(packet.data?.outputs[0] ?? {}).sort();
@@ -153,6 +163,25 @@ function ReviewPage() {
                       </p>
                     ))}
                   </div>
+                ))}
+              </div>
+            ))}
+          </Panel>
+          <Panel title="Pinned sources and approved gold">
+            <State loading={context.loading} error={context.error} />
+            {context.data && caseIds.map((caseId) => (
+              <div key={caseId} className="border-t border-border py-3 text-sm">
+                <strong>{caseId}</strong>
+                {Object.entries(context.data!.cases[caseId]?.sources ?? {}).map(([sourceId, lines]) => (
+                  <div key={sourceId} className="mt-2">
+                    <small className="text-muted-foreground">Source {sourceId}</small>
+                    <pre className="overflow-x-auto whitespace-pre-wrap">{lines.join("\n")}</pre>
+                  </div>
+                ))}
+                {(context.data!.cases[caseId]?.expected_items ?? []).map((item) => (
+                  <p key={item.id} className="mt-2">
+                    {item.id} · {item.kind}: {item.semantic_definition || item.accepted_contents?.join("; ") || "No approved semantic definition"}
+                  </p>
                 ))}
               </div>
             ))}

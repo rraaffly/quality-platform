@@ -1,10 +1,10 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { type FormEvent } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { Button } from "#/components/arc/button/button";
 import { Alert } from "#/components/arc/alert/alert";
 import { Field, Heading, Panel, State, Status, field } from "#/features/workspace/ui";
 import { EmptyState } from "#/components/arc/empty-state/empty-state";
-import { type Project, useAction, useResource } from "#/lib/api";
+import { api, type Project, useAction, useResource } from "#/lib/api";
 
 type Report = {
   id: string;
@@ -26,10 +26,17 @@ function ReportsPage() {
   const settings = useResource<{ settings_id: string }>("/api/settings");
   const run = useAction();
   const upload = useAction();
+  const benchmarkForm = useRef<HTMLFormElement>(null);
+  const [quote, setQuote] = useState<{
+    fingerprint: string;
+    case_count: number;
+    provider_calls: number;
+    reservation_usd: number;
+    maximum_usd: number;
+  } | null>(null);
+  const [quoteError, setQuoteError] = useState("");
 
-  async function runBenchmark(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  function benchmarkPayload(form: FormData) {
     const rates = Object.fromEntries(
       ["analyst", "planner", "evaluator"].map((role) => [
         role,
@@ -39,8 +46,7 @@ function ReportsPage() {
         },
       ]),
     );
-    try {
-      await run.send("/api/evaluation/jobs", {
+    return {
         kind: "run_benchmark",
         project_id: form.get("project_id"),
         settings_id: settings.data?.settings_id,
@@ -51,7 +57,48 @@ function ReportsPage() {
         max_cost_usd: Number(form.get("max_cost_usd")),
         rates,
         confirm_cost: form.get("confirm_cost") === "on",
-      });
+    };
+  }
+
+  function quoteFingerprint(payload: ReturnType<typeof benchmarkPayload>) {
+    return JSON.stringify({ ...payload, confirm_cost: false });
+  }
+
+  async function calculateEstimate() {
+    if (!benchmarkForm.current) return;
+    const payload = benchmarkPayload(new FormData(benchmarkForm.current));
+    const params = new URLSearchParams({
+      tier: String(payload.tier),
+      dataset_version: String(payload.dataset_version),
+      agent_role: String(payload.agent_role),
+      repeats: String(payload.repeats),
+    });
+    setQuote(null);
+    setQuoteError("");
+    try {
+      const estimate = await api<Omit<NonNullable<typeof quote>, "fingerprint">>(
+        `/api/evaluation/estimate?${params}`,
+      );
+      setQuote({ ...estimate, fingerprint: quoteFingerprint(payload) });
+    } catch (cause) {
+      setQuoteError((cause as Error).message);
+    }
+  }
+
+  async function runBenchmark(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const payload = benchmarkPayload(new FormData(event.currentTarget));
+    if (!quote || quote.fingerprint !== quoteFingerprint(payload)) {
+      setQuoteError("Calculate the reservation again after changing benchmark inputs.");
+      return;
+    }
+    if (payload.max_cost_usd < quote.reservation_usd || payload.max_cost_usd > quote.maximum_usd) {
+      setQuoteError("The confirmed cap must cover the quoted reservation and stay within the tier limit.");
+      return;
+    }
+    setQuoteError("");
+    try {
+      await run.send("/api/evaluation/jobs", payload);
     } catch {
       // The action displays the error in the form.
     }
@@ -85,7 +132,7 @@ function ReportsPage() {
           error={projects.error || settings.error}
         />
         {projects.data && settings.data && (
-          <form onSubmit={(event) => void runBenchmark(event)} className="space-y-4">
+          <form ref={benchmarkForm} onSubmit={(event) => void runBenchmark(event)} className="space-y-4">
             <div className="grid gap-4 md:grid-cols-3">
               <Field label="Project">
                 <select className={field} name="project_id" required>
@@ -161,6 +208,17 @@ function ReportsPage() {
                 </Field>
               </div>
             ))}
+            <Button type="button" variant="secondary" onClick={() => void calculateEstimate()}>
+              Calculate cost reservation
+            </Button>
+            {quote && (
+              <p className="text-sm">
+                {quote.case_count} approved cases × {quote.provider_calls / (quote.case_count || 1)} calls per case
+                across all repeats. Required reservation: USD {quote.reservation_usd.toFixed(2)};
+                tier maximum: USD {quote.maximum_usd.toFixed(2)}. Recorded cost uses the declared token rates.
+              </p>
+            )}
+            {quoteError && <Alert tone="danger" title="Cost estimate unavailable">{quoteError}</Alert>}
             <label className="flex gap-2 text-sm">
               <input type="checkbox" name="confirm_cost" required />I confirm this live provider run
               and its declared maximum cost.

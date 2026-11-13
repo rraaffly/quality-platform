@@ -1,6 +1,16 @@
 # Web-First Local Quality Platform Implementation Plan
 
-**Execution note (2026-11-13):** Implemented on `codex/web-first-local`. The Reports page hosts benchmark intake, and the existing per-report review page hosts release actions; separate route files listed below were unnecessary. `qa-web` now exposes only `init`, `worker`, and `serve`. Offline verification passed on Windows, including the local launcher smoke test; no paid provider run was made. The task checkboxes below preserve the original planning checklist and are not the execution record.
+**Execution status (2026-11-13):** Tasks 1–8 are implemented on `codex/web-first-local`. The Reports page hosts benchmark intake and cost reservation estimates; the per-report review page hosts pinned inputs, blind review, release decisions and promotion. `qa-web` exposes only `init`, `worker`, and `serve`. The checkboxes below are the original planning steps, not a checked execution ledger.
+
+| Task | Implementation | Verification limit |
+| --- | --- | --- |
+| 1–2 Windows portability | Complete | One symlink test skips without Windows symlink privilege. |
+| 3 Local launcher | Complete | Native smoke test covers start, health and stop; a separate clean-checkout manual trial has not been recorded. |
+| 4–5 Web intake and paid benchmark | Complete | Fake-model tests cover queueing, idempotency, cost reservation and report storage; no paid provider run was authorized. |
+| 6–7 Evidence and release | Complete | Offline tests cover blind packet/context, calibration, release gates, stale comparator and retry; a live evidence-based promotion has not been performed. |
+| 8 CLI retirement | Complete | `qa-orchestrator` and the QA command adapter are removed; operational `qa-web` commands remain. |
+
+The completion gate remains **partially verified** until a fresh Windows checkout is manually configured and exercised through the browser. Paid-provider quality and release readiness require separate approved evidence and are outside offline verification.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

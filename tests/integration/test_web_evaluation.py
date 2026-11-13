@@ -118,6 +118,16 @@ def test_report_upload_requires_auth_project_and_idempotent_content(web) -> None
     assert result.json()["status"] == "SUCCEEDED"
     assert result.json()["result"]["run_id"] == "run-1"
     assert "review_packet_path" not in result.text
+    web_id = register_report(
+        control,
+        "P1",
+        report.model_copy(update={"evaluated_case_ids": ("conflict",)}),
+        source="web",
+    )["report_id"]
+    context = client.get(f"/api/projects/P1/evaluation/{web_id}/review-context")
+    assert context.status_code == 200, context.text
+    assert "synthetic-login-brd" in context.json()["cases"]["conflict"]["sources"]
+    assert "evaluator_assessment" not in context.text
     assert client.get("/api/reports").json()["reports"][0]["report"]["run_id"] == "run-1"
 
 
@@ -166,7 +176,43 @@ def test_benchmark_run_requires_explicit_budget_and_queues_exact_settings(web) -
         "confirm_cost": False,
     }
     endpoint = "/api/evaluation/jobs"
+    quote = client.get(
+        "/api/evaluation/estimate",
+        params={"tier": 2, "dataset_version": "v0.1", "agent_role": "analyst", "repeats": 1},
+    )
+    assert quote.status_code == 200, quote.text
+    assert quote.json()["case_count"] == 2
+    assert quote.json()["reservation_usd"] == 5.0
+    assert quote.json()["maximum_usd"] == 5.0
+    tier3 = client.get(
+        "/api/evaluation/estimate",
+        params={"tier": 3, "dataset_version": "v0.1", "agent_role": "analyst", "repeats": 2},
+    )
+    assert tier3.status_code == 200, tier3.text
+    assert tier3.json()["reservation_usd"] == 8.0
+    assert tier3.json()["provider_calls"] == 8
+    assert (
+        client.get(
+            "/api/evaluation/estimate",
+            params={
+                "tier": 2,
+                "dataset_version": "../secret",
+                "agent_role": "analyst",
+                "repeats": 1,
+            },
+        ).status_code
+        == 422
+    )
     assert client.post(endpoint, json=body, headers=headers).status_code == 422
+    assert len(control.jobs()) == 1
+    assert (
+        client.post(
+            endpoint,
+            json={**body, "confirm_cost": True, "max_cost_usd": 4.0},
+            headers={**headers, "Idempotency-Key": "insufficient-cap"},
+        ).status_code
+        == 422
+    )
     assert len(control.jobs()) == 1
     accepted = client.post(endpoint, json={**body, "confirm_cost": True}, headers=headers)
     assert accepted.status_code == 202, accepted.text
@@ -174,7 +220,16 @@ def test_benchmark_run_requires_explicit_budget_and_queues_exact_settings(web) -
     assert duplicate.json()["job_id"] == accepted.json()["job_id"]
     assert (
         client.post(
-            endpoint, json={**body, "confirm_cost": True, "max_cost_usd": 4.0}, headers=headers
+            endpoint,
+            json={
+                **body,
+                "confirm_cost": True,
+                "rates": {
+                    **body["rates"],
+                    "analyst": {"input_usd_per_million": 2.0, "output_usd_per_million": 1.0},
+                },
+            },
+            headers=headers,
         ).status_code
         == 409
     )
@@ -366,6 +421,18 @@ def test_blind_web_review_precedes_calibration(web, monkeypatch: pytest.MonkeyPa
         "calibration_id": calibration_id,
         "thresholds": thresholds,
     }
+    assert (
+        client.post(
+            "/api/evaluation/jobs",
+            json={
+                key: value
+                for key, value in {**release_base, "action": "review_release"}.items()
+                if key != "calibration_id"
+            },
+            headers={**headers, "Idempotency-Key": "missing-calibration"},
+        ).status_code
+        == 422
+    )
     prepared = client.post(
         "/api/evaluation/jobs",
         json={**release_base, "action": "prepare_release"},
@@ -398,6 +465,28 @@ def test_blind_web_review_precedes_calibration(web, monkeypatch: pytest.MonkeyPa
     release_result = client.get(f"/api/evaluation/jobs/{release.json()['job_id']}").json()
     assert release_result["status"] == "SUCCEEDED"
     assert release_result["result"]["decision"] != "PASS"
+    rejected = client.post(
+        "/api/evaluation/jobs",
+        json={
+            **release_base,
+            "action": "review_release",
+            "bootstrap": True,
+            "approval": {
+                "candidate_run_id": persisted.run_id,
+                "status": "REJECTED",
+                "reviewer": "QA",
+                "reviewed_at": datetime.now(UTC).isoformat(),
+                "reviewed_evidence": hashes,
+            },
+        },
+        headers={**headers, "Idempotency-Key": "release-rejected"},
+    )
+    assert rejected.status_code == 202
+    asyncio.run(run_worker(control.state, once=True))
+    rejected_result = client.get(f"/api/evaluation/jobs/{rejected.json()['job_id']}").json()
+    assert rejected_result["status"] == "SUCCEEDED"
+    assert rejected_result["result"]["decision"] != "PASS"
+    assert "human release approval not granted" in rejected_result["result"]["reasons"]
     promoted = client.post(
         "/api/evaluation/jobs",
         json={
@@ -443,6 +532,22 @@ def test_blind_web_review_precedes_calibration(web, monkeypatch: pytest.MonkeyPa
     baseline_dir = control.state / "evaluation" / "baselines" / "P1"
     assert load_baseline(baseline_dir).report.run_id == persisted.run_id  # type: ignore[union-attr]
     assert len(list((baseline_dir / "history").glob("*.json"))) == 1
+    stale = client.post(
+        "/api/evaluation/jobs",
+        json={
+            **release_base,
+            "action": "promote_baseline",
+            "release_id": passing_id,
+            "confirm_promotion": True,
+        },
+        headers={**headers, "Idempotency-Key": "stale-comparator"},
+    )
+    assert stale.status_code == 202
+    asyncio.run(run_worker(control.state, once=True))
+    assert client.get(f"/api/evaluation/jobs/{stale.json()['job_id']}").json()["status"] == "FAILED"
+    before = (baseline_dir / "latest-approved.json").read_bytes()
+    assert client.get("/api/reports").status_code == 200
+    assert (baseline_dir / "latest-approved.json").read_bytes() == before
     with control.connect() as db:
         db.execute("UPDATE jobs SET status='INTERRUPTED' WHERE id=?", (approved.json()["job_id"],))
     control.retry(approved.json()["job_id"])

@@ -156,6 +156,8 @@ def test_actually_executed_pytest_evidence_pass_or_failure_binds_release_and_rej
         assert release.decision == ReleaseDecision.BLOCKED
         assert "critical offline workflow/policy suite failed" in release.reasons
     else:
+        assert release.decision == ReleaseDecision.REVIEW_REQUIRED
+        assert "approval does not reference all exact release evidence" in release.reasons
         # The private packet's own checksum and identity checks have separate tests.
         monkeypatch.setattr(
             "quality_platform.evaluation.release.validate_review_packet", lambda _report: None

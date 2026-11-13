@@ -24,8 +24,11 @@ from quality_platform.evaluation.reporting import _restrict_private_path
 from quality_platform.web.control import Conflict, Control, digest
 from quality_platform.web.evaluation import (
     EvaluationActionCommand,
+    EvaluationEstimateQuery,
     EvaluationImportCommand,
     EvaluationRunCommand,
+    estimate_benchmark,
+    review_context,
     review_packet,
     web_report,
 )
@@ -342,6 +345,11 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
             request, await request.json(), request.headers.get("idempotency-key", "")
         )
 
+    @app.get("/api/evaluation/estimate")
+    async def evaluation_estimate(request: Request) -> Response:
+        query = EvaluationEstimateQuery.model_validate(dict(request.query_params))
+        return JSONResponse(estimate_benchmark(query))
+
     @app.post("/api/evaluation/jobs")
     async def evaluation_job(request: Request) -> Response:
         key = request.headers.get("idempotency-key", "")
@@ -351,6 +359,15 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
             values = await request.json()
             if values.get("kind") == "run_benchmark":
                 run_command = EvaluationRunCommand.model_validate(values)
+                quote = estimate_benchmark(
+                    EvaluationEstimateQuery.model_validate(
+                        run_command.model_dump(
+                            include={"tier", "dataset_version", "agent_role", "repeats"}
+                        )
+                    )
+                )
+                if not quote["reservation_usd"] <= run_command.max_cost_usd <= quote["maximum_usd"]:
+                    raise HTTPException(422, "Confirmed cap must cover the quoted reservation")
                 with reader(database) as repo:
                     repo.read_project_record(run_command.project_id, run_command.project_id)
                 control.config(run_command.settings_id)
@@ -417,6 +434,12 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         with reader(database) as repo:
             repo.read_project_record(project, project)
         return review_packet(control, project, identity)
+
+    @app.get("/api/projects/{project}/evaluation/{identity}/review-context")
+    async def evaluation_review_context(project: str, identity: str) -> Any:
+        with reader(database) as repo:
+            repo.read_project_record(project, project)
+        return review_context(control, project, identity)
 
     @app.post("/commands")
     async def form_command(request: Request) -> Response:
