@@ -1,7 +1,7 @@
 [project]
 name = "quality-platform"
 version = "0.1.0"
-description = "Agentic Software Testing Lifecycle Workflow — multi-agent LangGraph + CLI"
+description = "Local Web platform for the agentic software testing lifecycle"
 readme = "README.md"
 authors = [
     { name = "Rafly Rafsanjani", email = "mrrafsanjani@pgi.local" }
@@ -39,7 +39,6 @@ dev = [
 ]
 
 [project.scripts]
-qa-orchestrator = "quality_platform:main"
 qa-web = "quality_platform.web.cli:main"
 
 [build-system]

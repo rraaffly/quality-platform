@@ -1,6 +1,8 @@
+import csv
 import hashlib
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -77,11 +79,28 @@ def _atomic_write(path: Path, content: str) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
+def _restrict_private_path(path: Path, mode: int) -> None:
+    if os.name != "nt":
+        path.chmod(mode)
+        return
+    result = subprocess.check_output(
+        ["whoami", "/user", "/fo", "csv", "/nh"], text=True
+    )
+    sid = next(csv.reader(result.splitlines()))[1]
+    subprocess.run(
+        ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{sid}:(F)"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def write_report(report: BenchmarkReport, directory: Path) -> tuple[Path, Path]:
     directory.mkdir(parents=True, exist_ok=True)
     if report.review_outputs:
         private_directory = directory / ".private"
         private_directory.mkdir(mode=0o700, exist_ok=True)
+        _restrict_private_path(private_directory, 0o700)
         packet = ReviewPacket(
             candidate_run_id=report.run_id,
             input_fingerprint=report.input_fingerprint,
@@ -98,6 +117,7 @@ def write_report(report: BenchmarkReport, directory: Path) -> tuple[Path, Path]:
         )
         packet_path = (private_directory / f"{report.run_id}.review.json").resolve()
         _atomic_write(packet_path, packet.model_dump_json(indent=2))
+        _restrict_private_path(packet_path, 0o600)
         report = report.model_copy(
             update={
                 "review_packet_path": str(packet_path),

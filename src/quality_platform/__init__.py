@@ -1,4 +1,1 @@
-def main() -> None:
-    from quality_platform.cli.app import app
-
-    app()
+"""Quality Platform Web application and evaluation services."""

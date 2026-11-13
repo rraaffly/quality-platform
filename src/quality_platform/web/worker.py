@@ -11,6 +11,7 @@ from sqlalchemy.exc import NoResultFound
 from quality_platform.application import WorkflowApplication, create_project, create_workflow
 from quality_platform.documents.ingestion import ingest_markdown
 from quality_platform.domain.models import StakeholderAnswer
+from quality_platform.evaluation.models import BenchmarkReport
 from quality_platform.services.revisions import RevisionDraft
 from quality_platform.services.scopes import ScopeAction, ScopeDecision, propose_scope_edit
 from quality_platform.storage.checkpoints import create_checkpoint_saver
@@ -18,6 +19,14 @@ from quality_platform.storage.database import open_database
 from quality_platform.storage.ownership import writer_lock
 from quality_platform.storage.repositories import QaRepositories
 from quality_platform.web.control import Conflict, Control
+from quality_platform.web.evaluation import (
+    EvaluationActionCommand,
+    EvaluationImportCommand,
+    EvaluationRunCommand,
+    execute_action,
+    execute_run,
+    register_report,
+)
 from quality_platform.web.models import Command
 from quality_platform.web.queries import workflow_view
 
@@ -33,6 +42,26 @@ async def dispatch(
     control: Control, repo: QaRepositories, job: dict[str, Any], *, model_factory: Any = None
 ) -> Any:
     payload = json.loads(job["payload"])
+    if payload.get("kind") == "evaluation_action":
+        action_command = EvaluationActionCommand.model_validate(payload)
+        repo.read_project_record(action_command.project_id, action_command.project_id)
+        return await execute_action(control, action_command, job["id"])
+    if payload.get("kind") == "run_benchmark":
+        benchmark_command = EvaluationRunCommand.model_validate(payload)
+        repo.read_project_record(benchmark_command.project_id, benchmark_command.project_id)
+        return await execute_run(control, benchmark_command, job["id"])
+    if payload.get("kind") == "evaluation_import_report":
+        import_command = EvaluationImportCommand.model_validate(payload)
+        repo.read_project_record(import_command.project_id, import_command.project_id)
+        staged = confined(
+            control.state,
+            control.state / "evaluation" / "staged" / f"{import_command.report_hash}.json",
+        )
+        raw = staged.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != import_command.report_hash:
+            raise ValueError("Staged report changed")
+        report = BenchmarkReport.model_validate_json(raw)
+        return register_report(control, import_command.project_id, report)
     uploads = payload.pop("uploads", [])
     command = Command.model_validate(payload)
     config = (

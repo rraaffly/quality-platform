@@ -1,5 +1,6 @@
 """Single-writer ownership and non-mutating SQLite access."""
 
+import hashlib
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -13,7 +14,10 @@ from sqlalchemy.engine import URL, Engine
 @contextmanager
 def writer_lock(database: Path) -> Iterator[None]:
     resolved = database.resolve()
-    target = resolved.with_name(resolved.name + ".writer.lock")
+    # The database name may contain '?' or '#', which filelock cannot open as
+    # a Windows lock path even though SQLite can address the database.
+    identity = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()
+    target = resolved.with_name(f".qp-writer-{identity}.lock")
     target.parent.mkdir(parents=True, exist_ok=True)
     lock = FileLock(target, timeout=0)
     try:

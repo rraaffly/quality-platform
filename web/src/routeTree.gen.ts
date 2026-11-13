@@ -19,6 +19,7 @@ import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AppActivityIndexRouteImport } from './routes/_app/activity/index'
 import { Route as AppActivityJobRouteImport } from './routes/_app/activity/$job'
 import { Route as AppWorkspaceIndexRouteImport } from './routes/_app/workspace/index'
+import { Route as AppEvaluationProjectReportRouteImport } from './routes/_app/evaluation/$project/$report'
 import { Route as AppWorkspaceProjectWorkflowRouteRouteImport } from './routes/_app/workspace/$project/$workflow/route'
 import { Route as AppWorkspaceProjectWorkflowIndexRouteImport } from './routes/_app/workspace/$project/$workflow/index'
 import { Route as AppWorkspaceProjectWorkflowSourcesSourceRouteImport } from './routes/_app/workspace/$project/$workflow/sources/$source'
@@ -72,6 +73,12 @@ const AppWorkspaceIndexRoute = AppWorkspaceIndexRouteImport.update({
   path: '/workspace/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppEvaluationProjectReportRoute =
+  AppEvaluationProjectReportRouteImport.update({
+    id: '/evaluation/$project/$report',
+    path: '/evaluation/$project/$report',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 const AppWorkspaceProjectWorkflowRouteRoute =
   AppWorkspaceProjectWorkflowRouteRouteImport.update({
     id: '/workspace/$project/$workflow',
@@ -107,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/activity/': typeof AppActivityIndexRoute
   '/workspace/': typeof AppWorkspaceIndexRoute
   '/workspace/$project/$workflow': typeof AppWorkspaceProjectWorkflowRouteRouteWithChildren
+  '/evaluation/$project/$report': typeof AppEvaluationProjectReportRoute
   '/workspace/$project/$workflow/': typeof AppWorkspaceProjectWorkflowIndexRoute
   '/workspace/$project/$workflow/sources/$source': typeof AppWorkspaceProjectWorkflowSourcesSourceRoute
   '/workspace/$project/$workflow/artifacts/$artifact/$version': typeof AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute
@@ -119,6 +127,7 @@ export interface FileRoutesByTo {
   '/activity/$job': typeof AppActivityJobRoute
   '/activity': typeof AppActivityIndexRoute
   '/workspace': typeof AppWorkspaceIndexRoute
+  '/evaluation/$project/$report': typeof AppEvaluationProjectReportRoute
   '/workspace/$project/$workflow': typeof AppWorkspaceProjectWorkflowIndexRoute
   '/workspace/$project/$workflow/sources/$source': typeof AppWorkspaceProjectWorkflowSourcesSourceRoute
   '/workspace/$project/$workflow/artifacts/$artifact/$version': typeof AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute
@@ -136,6 +145,7 @@ export interface FileRoutesById {
   '/_app/activity/': typeof AppActivityIndexRoute
   '/_app/workspace/': typeof AppWorkspaceIndexRoute
   '/_app/workspace/$project/$workflow': typeof AppWorkspaceProjectWorkflowRouteRouteWithChildren
+  '/_app/evaluation/$project/$report': typeof AppEvaluationProjectReportRoute
   '/_app/workspace/$project/$workflow/': typeof AppWorkspaceProjectWorkflowIndexRoute
   '/_app/workspace/$project/$workflow/sources/$source': typeof AppWorkspaceProjectWorkflowSourcesSourceRoute
   '/_app/workspace/$project/$workflow/artifacts/$artifact/$version': typeof AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/activity/'
     | '/workspace/'
     | '/workspace/$project/$workflow'
+    | '/evaluation/$project/$report'
     | '/workspace/$project/$workflow/'
     | '/workspace/$project/$workflow/sources/$source'
     | '/workspace/$project/$workflow/artifacts/$artifact/$version'
@@ -164,6 +175,7 @@ export interface FileRouteTypes {
     | '/activity/$job'
     | '/activity'
     | '/workspace'
+    | '/evaluation/$project/$report'
     | '/workspace/$project/$workflow'
     | '/workspace/$project/$workflow/sources/$source'
     | '/workspace/$project/$workflow/artifacts/$artifact/$version'
@@ -180,6 +192,7 @@ export interface FileRouteTypes {
     | '/_app/activity/'
     | '/_app/workspace/'
     | '/_app/workspace/$project/$workflow'
+    | '/_app/evaluation/$project/$report'
     | '/_app/workspace/$project/$workflow/'
     | '/_app/workspace/$project/$workflow/sources/$source'
     | '/_app/workspace/$project/$workflow/artifacts/$artifact/$version'
@@ -263,6 +276,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkspaceIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/_app/evaluation/$project/$report': {
+      id: '/_app/evaluation/$project/$report'
+      path: '/evaluation/$project/$report'
+      fullPath: '/evaluation/$project/$report'
+      preLoaderRoute: typeof AppEvaluationProjectReportRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/_app/workspace/$project/$workflow': {
       id: '/_app/workspace/$project/$workflow'
       path: '/workspace/$project/$workflow'
@@ -334,6 +354,7 @@ interface AppRouteRouteChildren {
   AppSettingsRoute: typeof AppSettingsRoute
   AppWorkspaceIndexRoute: typeof AppWorkspaceIndexRoute
   AppWorkspaceProjectWorkflowRouteRoute: typeof AppWorkspaceProjectWorkflowRouteRouteWithChildren
+  AppEvaluationProjectReportRoute: typeof AppEvaluationProjectReportRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -343,6 +364,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppWorkspaceIndexRoute: AppWorkspaceIndexRoute,
   AppWorkspaceProjectWorkflowRouteRoute:
     AppWorkspaceProjectWorkflowRouteRouteWithChildren,
+  AppEvaluationProjectReportRoute: AppEvaluationProjectReportRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(

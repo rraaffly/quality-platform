@@ -43,7 +43,7 @@ async def test_full_dispatch_runs_real_analyst_and_planner_contracts_with_static
     source = "# Login\n\nThe user is signed in after submitting valid credentials.\n"
     fixture_root = tmp_path / "benchmarks" / "datasets" / "synthetic"
     fixture_root.mkdir(parents=True)
-    (fixture_root / "brd.md").write_text(source)
+    (fixture_root / "brd.md").write_bytes(source.encode("utf-8"))
     reference = SourceReference(document_id="brd", start_line=3, end_line=3)
     requirement = Requirement(
         id="R-LOGIN",

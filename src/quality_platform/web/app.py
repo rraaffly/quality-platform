@@ -19,7 +19,19 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from quality_platform.evaluation.models import BenchmarkReport
+from quality_platform.evaluation.reporting import _restrict_private_path
 from quality_platform.web.control import Conflict, Control, digest
+from quality_platform.web.evaluation import (
+    EvaluationActionCommand,
+    EvaluationEstimateQuery,
+    EvaluationImportCommand,
+    EvaluationRunCommand,
+    estimate_benchmark,
+    review_context,
+    review_packet,
+    web_report,
+)
 from quality_platform.web.models import Command, Settings
 from quality_platform.web.queries import (
     artifact_content,
@@ -332,6 +344,102 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         return await accept(
             request, await request.json(), request.headers.get("idempotency-key", "")
         )
+
+    @app.get("/api/evaluation/estimate")
+    async def evaluation_estimate(request: Request) -> Response:
+        query = EvaluationEstimateQuery.model_validate(dict(request.query_params))
+        return JSONResponse(estimate_benchmark(query))
+
+    @app.post("/api/evaluation/jobs")
+    async def evaluation_job(request: Request) -> Response:
+        key = request.headers.get("idempotency-key", "")
+        if not key or len(key) > 200:
+            raise HTTPException(422, "Idempotency key is required")
+        if "application/json" in request.headers.get("content-type", ""):
+            values = await request.json()
+            if values.get("kind") == "run_benchmark":
+                run_command = EvaluationRunCommand.model_validate(values)
+                quote = estimate_benchmark(
+                    EvaluationEstimateQuery.model_validate(
+                        run_command.model_dump(
+                            include={"tier", "dataset_version", "agent_role", "repeats"}
+                        )
+                    )
+                )
+                if not quote["reservation_usd"] <= run_command.max_cost_usd <= quote["maximum_usd"]:
+                    raise HTTPException(422, "Confirmed cap must cover the quoted reservation")
+                with reader(database) as repo:
+                    repo.read_project_record(run_command.project_id, run_command.project_id)
+                control.config(run_command.settings_id)
+                payload = run_command.model_dump(mode="json")
+            else:
+                action_command = EvaluationActionCommand.model_validate(values)
+                with reader(database) as repo:
+                    repo.read_project_record(action_command.project_id, action_command.project_id)
+                web_report(control, action_command.project_id, action_command.report_id)
+                payload = action_command.model_dump(mode="json")
+            return accepted(
+                request,
+                control.enqueue(payload, key, request.state.session["actor"]),
+            )
+        form = await request.form(max_files=1, max_fields=3, max_part_size=MAX_FILE)
+        if form.get("kind") != "register_report":
+            raise HTTPException(422, "Unsupported evaluation action")
+        project = str(form.get("project_id", ""))
+        with reader(database) as repo:
+            repo.read_project_record(project, project)
+        upload = form.get("file")
+        if not isinstance(upload, UploadFile) or upload.filename != "report.json":
+            raise HTTPException(422, "Upload a report.json file")
+        raw = await upload.read(MAX_FILE + 1)
+        if len(raw) > MAX_FILE:
+            raise HTTPException(413, "Report exceeds size limit")
+        BenchmarkReport.model_validate_json(raw)
+        identity = hashlib.sha256(raw).hexdigest()
+        directory = confined(control.state, control.state / "evaluation" / "staged")
+        directory.mkdir(parents=True, exist_ok=True)
+        _restrict_private_path(directory.parent, 0o700)
+        _restrict_private_path(directory, 0o700)
+        target = confined(control.state, directory / f"{identity}.json")
+        if target.exists():
+            if target.read_bytes() != raw:
+                raise Conflict("Staged report changed")
+        else:
+            with target.open("xb") as stream:
+                stream.write(raw)
+        _restrict_private_path(target, 0o600)
+        import_command = EvaluationImportCommand(
+            kind="evaluation_import_report", project_id=project, report_hash=identity
+        )
+        return accepted(
+            request,
+            control.enqueue(
+                import_command.model_dump(mode="json"), key, request.state.session["actor"]
+            ),
+        )
+
+    @app.get("/api/evaluation/jobs/{identity}")
+    async def evaluation_job_status(request: Request, identity: str) -> Any:
+        job = job_context(identity, request.state.session["actor"])
+        if job["command"]["kind"] not in {
+            "evaluation_import_report",
+            "run_benchmark",
+            "evaluation_action",
+        }:
+            raise HTTPException(404, "Evaluation job not found")
+        return job
+
+    @app.get("/api/projects/{project}/evaluation/{identity}/review-packet")
+    async def evaluation_review_packet(project: str, identity: str) -> Any:
+        with reader(database) as repo:
+            repo.read_project_record(project, project)
+        return review_packet(control, project, identity)
+
+    @app.get("/api/projects/{project}/evaluation/{identity}/review-context")
+    async def evaluation_review_context(project: str, identity: str) -> Any:
+        with reader(database) as repo:
+            repo.read_project_record(project, project)
+        return review_context(control, project, identity)
 
     @app.post("/commands")
     async def form_command(request: Request) -> Response:

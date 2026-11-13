@@ -54,7 +54,12 @@ def test_benchmark_snapshot_rejects_symlink_escape(tmp_path: Path) -> None:
     synthetic.mkdir(parents=True)
     secret = tmp_path / "secret.md"
     secret.write_text("private", encoding="utf-8")
-    (synthetic / "escaped.md").symlink_to(secret)
+    try:
+        (synthetic / "escaped.md").symlink_to(secret)
+    except OSError as error:
+        if getattr(error, "winerror", None) != 1314:
+            raise
+        pytest.skip("symlink creation requires Windows Developer Mode or privilege")
     case = benchmark_case("escaped", hashlib.sha256(secret.read_bytes()).hexdigest())
 
     with pytest.raises(LiveBenchmarkConfigurationError, match="outside benchmark root"):
@@ -118,8 +123,8 @@ async def test_live_analyst_uses_production_schema_validation_and_semantic_adapt
     fixture_root.mkdir(parents=True)
     brd = "# Login\n\nThe account locks after 3 failed attempts.\n"
     srs = "# Login\n\nThe account locks after 5 failed attempts.\n"
-    (fixture_root / "brd.md").write_text(brd, encoding="utf-8")
-    (fixture_root / "srs.md").write_text(srs, encoding="utf-8")
+    (fixture_root / "brd.md").write_bytes(brd.encode("utf-8"))
+    (fixture_root / "srs.md").write_bytes(srs.encode("utf-8"))
     brd_ref = SourceReference(document_id="brd", start_line=3, end_line=3)
     srs_ref = SourceReference(document_id="srs", start_line=3, end_line=3)
     blocked = Requirement(

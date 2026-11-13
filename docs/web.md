@@ -1,9 +1,6 @@
 # Penggunaan web lokal
 
-**Status:** antarmuka web lokal telah diimplementasikan. Tes offline HTTP/worker mencakup gate,
-keamanan, pemulihan, dan backup/restore; pengujian native Windows/macOS tetap diperlukan.
-Spesifikasi CLI v0.2 tetap menjadi catatan
-historis; perubahan batas produknya dicatat di [addendum web](superpowers/specs/2026-11-12-quality-platform-web-addendum.md).
+**Status:** aplikasi Web lokal telah diimplementasikan dan diuji offline di Windows. Spesifikasi CLI v0.2 adalah catatan historis; batas produk sekarang adalah Web.
 
 ## Persiapan dan menjalankan layanan
 
@@ -23,7 +20,7 @@ halaman UI mengembalikan HTTP 503 berisi petunjuk build. Jangan letakkan React d
 yang berbeda: sesi dan CSRF sengaja menggunakan cookie HttpOnly tanpa CORS. Setelah itu sesuaikan
 [template config.yaml](../config.yaml): ganti seluruh
 placeholder `model_id` dan pilih provider yang memiliki credential Anda. Lihat juga
-[panduan CLI](cli.md#projects-and-workflows).
+konfigurasi contoh di file tersebut.
 Pilih provider/model secara eksplisit; tidak ada model default atau fallback otomatis. Gunakan
 path absolut untuk konfigurasi dan direktori state agar semua proses membuka instalasi yang sama.
 
@@ -53,9 +50,33 @@ layanan berjalan dan masuk sebagai pemilik yang dibuat saat `init`. Worker mempr
 persisten; server menyajikan UI dan mencatat permintaan. Menjalankan `init`, worker, atau server
 tidak boleh otomatis memicu panggilan model berbayar maupun deployment remote.
 
-Dukungan Windows native dituju, tetapi **belum diuji dalam orb Linux ini**. Contoh `/absolute/...`
-adalah path POSIX; di PowerShell gunakan path absolut Windows dengan tanda kutip bila perlu.
-Jangan menyimpulkan kompatibilitas Windows dari hasil tes Linux saja.
+Alur offline sudah diuji di Windows native; tes symlink memerlukan hak membuat symlink dan dapat
+dilewati jika hak itu tidak tersedia. Contoh `/absolute/...` adalah path POSIX; di PowerShell gunakan
+path absolut Windows dengan tanda kutip bila perlu.
+
+### Menjalankan di Windows dengan satu perintah
+
+Simpan konfigurasi, database, workspace, dan state di direktori privat di luar repo. Salin
+`config.yaml`, isi semua model ID, lalu ubah `database_path` dan `workspace_root` menjadi path
+absolut di direktori tersebut. Setelah `uv sync --dev`, `bun install --frozen-lockfile`, dan
+`bun run build`, lakukan inisialisasi satu kali:
+
+```powershell
+uv run qa-web init --config "C:\QualityPlatformData\config.yaml" --state "C:\QualityPlatformData\state" --owner qa
+```
+
+Untuk penggunaan berikutnya, jalankan dari root repo:
+
+```powershell
+.\scripts\start-local.ps1 -State "C:\QualityPlatformData\state" -Port 8000
+# Buka http://127.0.0.1:8000
+.\scripts\stop-local.ps1 -State "C:\QualityPlatformData\state"
+```
+
+Launcher hanya menyalakan satu worker dan satu server loopback; ia tidak memulai model atau
+benchmark. Proses tersembunyi mencatat output di `state/logs`, dan `local-processes.json` menyimpan
+PID serta waktu mulai untuk mencegah penghentian proses lain saat PID dipakai ulang. Jika startup
+gagal, periksa log. Untuk backup konsisten, hentikan keduanya lebih dulu dengan `stop-local.ps1`.
 
 ## Alur kerja dan keputusan manusia
 
@@ -77,12 +98,10 @@ Jangan menyimpulkan kompatibilitas Windows dari hasil tes Linux saja.
    versi **draft**, bukan approval final. Versi lama tetap immutable; perubahan requirement
    menandai potensi stale, bukan menulis ulang artifact otomatis.
 
-Laporan benchmark/release di web bersifat **read-only**: melihat laporan tidak menjalankan
-benchmark, menyetujui release, atau mempromosikan baseline. Benchmark berbayar tetap melalui
-perintah eksplisit dan konfirmasi budget sesuai [panduan benchmarking](benchmarking.md).
+Membaca laporan tidak menjalankan benchmark atau mempromosikan baseline. Halaman Reports menyediakan job benchmark berbayar dengan konfirmasi biaya; halaman review menyediakan capture bukti, review blind, kalibrasi, keputusan release dan promosi eksplisit sesuai [panduan benchmarking](benchmarking.md).
 Tes offline dengan fake model bukan bukti kualitas benchmark berbayar atau kesiapan rilis.
 
-## Antrean, restart, dan akses CLI
+## Antrean dan restart
 
 Antrean disimpan di state kontrol, bukan hanya memori server. Mematikan server tidak berarti
 worker berhenti; hentikan keduanya bila ingin menghentikan layanan sepenuhnya. Setelah restart,
@@ -94,11 +113,7 @@ Checkpoint dan idempotensi melindungi publikasi domain, tetapi bukan jaminan exa
 provider. Jika respons provider sudah ditagihkan sebelum checkpoint tersimpan, resume dapat
 mengulang panggilan dan menimbulkan **tagihan tambahan**. Tidak ada migrasi model/fallback saat resume.
 
-Saat worker memegang lock penulis database, semua **mutasi CLI pada database yang sama dilarang**;
-pembacaan CLI tetap diizinkan. Jangan membuka worker kedua atau mencoba melewati lock. Untuk
-mutasi lewat CLI, hentikan worker terlebih dahulu dan pastikan hak tulis telah dilepas.
-Pernyataan “tidak ada daemon/background worker” pada panduan CLI menjelaskan mode CLI mandiri,
-bukan perluasan web ini.
+Jangan membuka worker kedua atau mencoba melewati lock penulis database.
 
 ## Akses remote: bukan default
 
@@ -117,7 +132,7 @@ sebelum membuka akses remote. Produk tetap single-owner, bukan layanan multi-ten
 
 ## Backup konsisten
 
-1. Hentikan penerimaan pekerjaan baru, lalu hentikan **server, worker, dan semua penulis CLI**.
+1. Hentikan penerimaan pekerjaan baru, lalu hentikan **server dan worker**.
    Catat job yang belum selesai; jangan menghapus state/checkpoint untuk memaksakan retry.
 2. Salin sebagai satu set konsisten: database domain, database checkpoint, seluruh state kontrol
    (termasuk antrean, konfigurasi server dan hash akun), serta workspace sumber/artifact immutable.
@@ -157,10 +172,4 @@ memaksakan keputusan pada versi baru. Run/import memakai identitas asli untuk me
 publikasi yang telah tersimpan. Review yang ditolak tetap ditolak dalam checkpoint; buat revisi
 baru sebelum meminta approval berikutnya.
 
-Daftarkan ringkasan laporan benchmark yang telah ada secara eksplisit:
-
-```bash
-uv run qa-web register-report --state /absolute/web-state --project-id P1 --report /absolute/report.json
-```
-
-Halaman Reports tidak menerima path browser dan tidak menjalankan inference atau promotion.
+Halaman Reports dapat menerima unggahan laporan lama untuk inspeksi. Laporan impor tidak dapat menjadi bukti release; jalankan benchmark Web baru untuk jalur promosi. Browser tidak menerima path host.

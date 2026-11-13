@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from sqlalchemy import (
@@ -81,6 +82,8 @@ source_documents = Table(
 
 def open_database(path: Path) -> Engine:
     database_path = path.resolve()
+    if os.name == "nt" and any(char in database_path.name for char in '<>:"|?*'):
+        raise ValueError("invalid Windows database filename")
     database_path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(URL.create("sqlite+pysqlite", database=str(database_path)))
 

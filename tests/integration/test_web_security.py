@@ -291,19 +291,14 @@ def test_expired_session_and_read_only_report_registration(local: Any, tmp_path:
             }
         )
     )
-    result = CliRunner().invoke(
-        cli,
-        [
-            "register-report",
-            "--state",
-            str(control.state),
-            "--project-id",
-            "P1",
-            "--report",
-            str(report),
-        ],
+    result = client.post(
+        "/api/evaluation/jobs",
+        data={"kind": "register_report", "project_id": "P1"},
+        files={"file": ("report.json", report.read_bytes(), "application/json")},
+        headers={**headers, "Accept": "application/json", "Idempotency-Key": "report-upload"},
     )
-    assert result.exit_code == 0, result.output
+    assert result.status_code == 202, result.text
+    asyncio.run(run_worker(control.state, once=True))
     page = client.get("/api/reports")
     assert page.status_code == 200
     report = page.json()["reports"][0]["report"]

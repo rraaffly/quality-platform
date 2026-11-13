@@ -1,9 +1,7 @@
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
 
-from quality_platform.cli.app import app
 from quality_platform.domain.models import (
     Clarification,
     ClarificationIssueType,
@@ -150,36 +148,3 @@ def test_workflow_isolation_and_replayed_answer_are_safe(tmp_path: Path) -> None
     first.record_stakeholder_answer("C-1", answer("15 minutes"))
     first.record_stakeholder_answer("C-1", answer("15 minutes"))
     assert len([event for event in repo.list_decisions("P1") if event.record_id == "C-1"]) == 2
-
-
-def test_cli_records_stakeholder_answer_for_selected_workflow(tmp_path: Path) -> None:
-    repo = setup_repo(tmp_path)
-    ClarificationService(repo, project_id="P1", workflow_id="W1").create_batch([question("C-1")])
-    result = CliRunner().invoke(
-        app,
-        [
-            "workflow",
-            "answer",
-            "--database",
-            str(tmp_path / "qa.sqlite"),
-            "--project-id",
-            "P1",
-            "--workflow-id",
-            "W1",
-            "--clarification-id",
-            "C-1",
-            "--author",
-            "Product Owner",
-            "--text",
-            "15 minutes",
-            "--recorded-by",
-            "QA",
-            "--source",
-            "review meeting",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert (
-        ClarificationService(repo, project_id="P1", workflow_id="W1").get("C-1").status
-        == ClarificationStatus.ANSWERED
-    )
