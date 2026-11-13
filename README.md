@@ -1,73 +1,47 @@
 # Quality Platform
 
-Local-first QA orchestration for requirement analysis, scope review, test planning, canonical
-test cases, approval workflows, targeted revision, impact detection, and evaluation.
+Quality Platform runs QA workflows and evaluation in a local Web app. The owner reviews requirements, scopes, plans, test cases, benchmark evidence, and release decisions in the browser. `qa-web` is used only to initialize and operate the local server and worker.
 
-## Status
+The bundled benchmark is synthetic-first. Its `v0.1` approved cases lack semantic definitions, quality thresholds are illustrative, and no live-model quality or release readiness is claimed. A release requires approved real cases, calibrated thresholds, independent human review, workflow evidence, and an explicit Web promotion decision.
 
-The MVP workflow and offline safety suite are implemented. The bundled benchmark is intentionally
-synthetic-first: no private real-world fixtures are committed, numeric quality gates remain
-illustrative, and release readiness is not claimed until approved real cases and calibrated human
-review evidence exist.
+## Run locally on Windows
 
-Evaluation now preserves semantic content, rejects source/ID-only semantic matches, runs production
-Analyst/Planner task adapters with a static evaluator role, and saves per-repeat scores and variance.
-Explicit offline CLI commands capture independent human ratings, calculate evaluator calibration,
-compare minimum gates/latest-approved baseline, record release review, and promote only explicitly
-approved evidence. Equivalent-task productivity requires acceptance identities and review/rework time.
-The existing gold approvals were not changed: approved `v0.1` cases without semantic definitions
-fail closed for human review. Tier 3 remains a task benchmark, not per-case full workflow E2E.
-`benchmark capture-workflow-evidence` actually runs the offline workflow/policy suites;
-`benchmark attach-workflow-evidence` binds their JUnit results and current source fingerprint to
-the report. Release/promotion revalidate this evidence: stale or incomplete results cannot clear
-`E2E_WORKFLOW_EVIDENCE_MISSING`, and failed policy tests are `BLOCKED`. See
-[benchmarking and explicit release commands](docs/benchmarking.md) for the evidence path and limits.
+1. Copy [config.yaml](config.yaml) into a private directory outside this repository. Set absolute `database_path` and `workspace_root`, then choose provider and model IDs. Keep provider API keys in the process environment.
+2. Install and build:
 
-## Setup
+   ```powershell
+   uv sync --dev
+   cd web
+   bun install --frozen-lockfile
+   bun run build
+   cd ..
+   ```
 
-```bash
-uv sync --dev
-uv run qa-orchestrator --help
+3. Initialize once, then start the local worker and server:
+
+   ```powershell
+   uv run qa-web init --config "C:\QualityPlatformData\config.yaml" --state "C:\QualityPlatformData\state" --owner qa
+   .\scripts\start-local.ps1 -State "C:\QualityPlatformData\state" -Port 8000
+   ```
+
+4. Open `http://127.0.0.1:8000`. Stop both processes before backup:
+
+   ```powershell
+   .\scripts\stop-local.ps1 -State "C:\QualityPlatformData\state"
+   ```
+
+Starting the app does not call a model. Workflow runs and paid Tier 2/Tier 3 benchmarks require explicit confirmation. Workflow calls have no monetary cap; paid benchmarks use a declared USD cap and token rates. See [local Web operations](docs/web.md) and [benchmark and release evidence](docs/benchmarking.md).
+
+## Verify offline
+
+```powershell
 uv run pytest -q
+uv run ruff check .
+uv run mypy
+cd web
+bunx tsc --noEmit
+bun run lint
+bun run build
 ```
 
-Configuration fixes one provider/model per agent role (`orchestrator`, `analyst`, `planner`, and
-`evaluator`). Provider credentials stay in environment variables and are never written to model
-snapshots or benchmark reports.
-
-## Web lokal
-
-Antarmuka web menambahkan satu akun pemilik, antrean persisten, dan worker lokal di atas aturan
-domain yang sama. Alur HTTP/worker diuji offline di Windows dan Linux; macOS belum diverifikasi.
-
-Di Windows, setelah build dan `qa-web init` sekali, gunakan
-`.\scripts\start-local.ps1 -State <state>` dan `.\scripts\stop-local.ps1 -State <state>`.
-Launcher menyalakan server dan worker lokal tanpa memanggil model; detail ada di
-[panduan web](docs/web.md). Suite offline telah dijalankan di Windows native; satu tes symlink
-dilewati ketika hak membuat symlink tidak tersedia.
-
-Siapkan YAML sesuai [panduan CLI](docs/cli.md), lalu jalankan inisialisasi dan dua proses terpisah:
-
-```bash
-uv run qa-web init --config /absolute/config.yaml --state /absolute/web-state --owner qa
-uv run qa-web worker --state /absolute/web-state
-# Jalankan di terminal lain; default hanya mendengarkan loopback:
-uv run qa-web serve --state /absolute/web-state --port 8000
-```
-
-`init` meminta kata sandi dan konfirmasinya secara privat. Kredensial provider hanya berada di
-environment proses server/worker, bukan formulir web atau kode. Menyalakan layanan tidak boleh
-otomatis menjalankan panggilan berbayar; run live memerlukan konfirmasi. **Workflow belum memiliki
-batas biaya moneter**; resume pekerjaan terputus harus eksplisit dan dapat menagih provider lagi.
-Saat worker memegang lock penulis database, mutasi lewat CLI dilarang; pembacaan CLI tetap diizinkan.
-Lihat [panduan web](docs/web.md) untuk approval, restart, backup, dan batas akses remote.
-
-## Documentation
-
-- [CLI workflows](docs/cli.md)
-- [Penggunaan web lokal](docs/web.md)
-- [Addendum spesifikasi web](docs/superpowers/specs/2026-11-12-quality-platform-web-addendum.md)
-- [Benchmarking and release readiness](docs/benchmarking.md)
-
-Tier 2 and Tier 3 invoke paid model APIs only through explicit commands with a confirmed cost cap.
-Ordinary `pytest` remains offline and uses fake models.
+Offline tests use fake models; they do not establish live-model quality.

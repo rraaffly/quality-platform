@@ -17,7 +17,7 @@ from quality_platform.evaluation.models import (
 )
 
 WORKFLOW_POLICY_SUITES = (
-    "tests/e2e/test_cli_workflows.py",
+    "tests/e2e/test_web_workflows.py",
     "tests/e2e/test_resume_and_conflict.py",
     "tests/e2e/test_stlc_journey.py",
     "tests/integration/test_parallel_scopes.py",

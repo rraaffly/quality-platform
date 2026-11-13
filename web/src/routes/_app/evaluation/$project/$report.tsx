@@ -97,6 +97,12 @@ function ReviewPage() {
         calibration_id: String(form.get("calibration_id") ?? ""),
         thresholds,
       };
+      if (stage === "prepare_release") {
+        payload.reviewed_evidence = String(form.get("reviewed_evidence") ?? "")
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+      }
       if (stage === "review_release") {
         payload.bootstrap = form.get("bootstrap") === "on";
         payload.approval = {

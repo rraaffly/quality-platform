@@ -4,9 +4,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
 
-from quality_platform.cli.app import app
 from quality_platform.domain.models import (
     ArtifactKind,
     ArtifactStatus,
@@ -267,43 +265,5 @@ async def test_scope_checkpoints_survive_shutdown_and_resume_does_not_double_wri
         assert (await first.resume_workflow("W1", response)).status == "APPROVED"
         assert (await second.run_workflow("W1")).status == "WAITING_FOR_REVIEW"
 
-    approvals = [event for event in repo.list_decisions("P1") if event.event_type == "approval"]
-    assert len(approvals) == 1
-
-
-def test_cli_resume_uses_persisted_checkpoint_without_double_write(tmp_path: Path) -> None:
-    repo, services = prepared_runtimes(tmp_path)
-    checkpoint_path = tmp_path / "checkpoints.sqlite"
-
-    async def start_review() -> None:
-        async with create_checkpoint_saver(checkpoint_path) as saver:
-            waiting = await WorkflowRuntime(services["S1"], saver).run_workflow("W1")
-            assert waiting.status == "WAITING_FOR_REVIEW"
-
-    asyncio.run(start_review())
-    arguments = [
-        "workflow",
-        "resume",
-        "--database",
-        str(tmp_path / "domain.sqlite"),
-        "--checkpoint-database",
-        str(checkpoint_path),
-        "--project-id",
-        "P1",
-        "--workflow-id",
-        "W1",
-        "--artifact-id",
-        "PLAN-S1",
-        "--actor",
-        "QA",
-        "--approve",
-    ]
-    first = CliRunner().invoke(app, arguments)
-    replay = CliRunner().invoke(app, arguments)
-
-    assert first.exit_code == 0, first.output
-    assert replay.exit_code == 0, replay.output
-    assert "APPROVED" in first.output
-    assert "APPROVED" in replay.output
     approvals = [event for event in repo.list_decisions("P1") if event.event_type == "approval"]
     assert len(approvals) == 1

@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypeVar
 
@@ -20,8 +21,8 @@ from quality_platform.evaluation.models import (
 )
 from quality_platform.evaluation.regression import (
     BaselineApproval,
+    BaselineApprovalStatus,
     QualityThresholds,
-    decide_regression,
 )
 from quality_platform.evaluation.release import (
     ApprovedBaseline,
@@ -118,6 +119,7 @@ class EvaluationActionCommand(BaseModel):
     release_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     thresholds: QualityThresholds | None = None
     approval: BaselineApproval | None = None
+    reviewed_evidence: tuple[str, ...] = ()
     bootstrap: bool = False
     confirm_promotion: bool = False
 
@@ -306,9 +308,22 @@ async def execute_action(
         baseline_directory = base / "baselines" / command.project_id
         if command.action == "prepare_release":
             baseline = load_baseline(baseline_directory)
-            regression = decide_regression(
-                report, baseline.report if baseline else report, thresholds
+            preview = review_release(
+                report,
+                baseline,
+                thresholds,
+                human,
+                calibration,
+                BaselineApproval(
+                    candidate_run_id=report.run_id,
+                    status=BaselineApprovalStatus.REJECTED,
+                    reviewer="release-preview",
+                    reviewed_at=datetime.now(UTC),
+                    reviewed_evidence=command.reviewed_evidence or ("preview",),
+                ),
+                bootstrap=baseline is None,
             )
+            regression = preview.regression
             reviewed_evidence = [
                 f"report:{evidence_digest(report)}",
                 f"human-review:{evidence_digest(human)}",

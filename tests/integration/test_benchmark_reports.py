@@ -5,9 +5,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from typer.testing import CliRunner
-
-from quality_platform.cli.app import app
 from quality_platform.domain.models import SourceReference
 from quality_platform.evaluation.models import (
     BenchmarkCase,
@@ -20,7 +17,6 @@ from quality_platform.evaluation.models import (
     GoldStatus,
     ModelUsage,
     ObservedItem,
-    ReleaseDecision,
     Severity,
     TaskType,
 )
@@ -156,60 +152,3 @@ def test_unapproved_real_world_case_is_excluded_without_invoking_handler() -> No
     assert seen == ["synthetic-approved"]
     assert report.eligible_count == 1
     assert report.excluded_count == 1
-
-
-def test_ordinary_benchmark_command_never_invokes_live_runner(monkeypatch) -> None:
-    invoked = False
-
-    async def forbidden_live_run(*_args, **_kwargs):
-        nonlocal invoked
-        invoked = True
-        raise AssertionError("live benchmark must be explicit")
-
-    monkeypatch.setattr("quality_platform.cli.commands.run_live_benchmark", forbidden_live_run)
-    result = CliRunner().invoke(app, ["benchmark", "run", "--dataset-version", "v0.1"])
-
-    assert result.exit_code != 0
-    assert invoked is False
-    assert "--tier" in result.output
-
-
-def test_explicit_tier2_command_writes_fake_report(tmp_path: Path, monkeypatch) -> None:
-    report = run_offline_suite(
-        Dataset(version="v0.1", rubric_version="v0.1", cases=()),
-        lambda _case: EvaluationOutput(),
-        candidate=candidate(),
-    ).model_copy(update={"decision": ReleaseDecision.REVIEW_REQUIRED})
-
-    async def fake_live_run(
-        dataset_version: str, agent_role: AgentRole, max_cases: int | None
-    ) -> BenchmarkReport:
-        assert dataset_version == "v0.1"
-        assert agent_role == AgentRole.ANALYST
-        assert max_cases == 2
-        return report
-
-    monkeypatch.setattr("quality_platform.cli.commands.run_live_benchmark", fake_live_run)
-    result = CliRunner().invoke(
-        app,
-        [
-            "benchmark",
-            "run",
-            "--tier",
-            "2",
-            "--dataset-version",
-            "v0.1",
-            "--agent-role",
-            "analyst",
-            "--max-cases",
-            "2",
-            "--output-directory",
-            str(tmp_path),
-            "--confirm-budget",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "REVIEW_REQUIRED" in result.output
-    assert len(list(tmp_path.glob("*.json"))) == 1
-    assert len(list(tmp_path.glob("*.md"))) == 1

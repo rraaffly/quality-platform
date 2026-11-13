@@ -1,10 +1,7 @@
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
 
-from quality_platform.cli.app import app
 from quality_platform.evaluation.models import (
     BenchmarkReport,
     CandidateSnapshot,
@@ -207,55 +204,3 @@ def test_human_review_must_cover_every_failed_case() -> None:
     )
 
     assert decision == ReleaseDecision.REVIEW_REQUIRED
-
-
-def test_explicit_tier3_cli_captures_productivity_inputs_and_writes_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    expected = report("tier3-cli").model_copy(
-        update={
-            "repeat_count": 2,
-            "active_qa_minutes": 12,
-            "manual_baseline_minutes": 30,
-            "readiness_labels": ("INSUFFICIENT_REAL_CASES", "UNCALIBRATED_GATES"),
-        }
-    )
-
-    async def fake_full_benchmark(dataset_version: str, *, repeats: int) -> BenchmarkReport:
-        assert dataset_version == "v0.1"
-        assert repeats == 2
-        return expected
-
-    monkeypatch.setattr("quality_platform.cli.commands.run_full_benchmark", fake_full_benchmark)
-    result = CliRunner().invoke(
-        app,
-        [
-            "benchmark",
-            "run",
-            "--tier",
-            "3",
-            "--dataset-version",
-            "v0.1",
-            "--output-directory",
-            str(tmp_path),
-            "--repeats",
-            "2",
-            "--confirm-budget",
-            "--max-cost-usd",
-            "1.0",
-            "--active-qa-minutes",
-            "12",
-            "--manual-baseline-minutes",
-            "30",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "INSUFFICIENT_REAL_CASES" in result.output
-    assert len(list(tmp_path.glob("*.json"))) == 1
-    assert len(list(tmp_path.glob("*.md"))) == 1
-    markdown = next(tmp_path.glob("*.md")).read_text(encoding="utf-8")
-    assert "- Repeats: 2" in markdown
-    assert "- Active QA time (minutes): 12.000" in markdown
-    assert "- Manual baseline time (minutes): 30.000" in markdown
-    assert "- Readiness labels: INSUFFICIENT_REAL_CASES, UNCALIBRATED_GATES" in markdown

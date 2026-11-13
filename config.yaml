@@ -1,4 +1,4 @@
-# Template konfigurasi untuk qa-web dan qa-orchestrator.
+# Template konfigurasi untuk Quality Platform Web.
 # Ganti SEMUA model_id sebelum menjalankan live model. Nilai di bawah bukan model nyata.
 # Provider yang didukung: openai, anthropic, google. Model harus mendukung structured output.
 # Setiap role memakai satu model tetap; tidak ada fallback otomatis.

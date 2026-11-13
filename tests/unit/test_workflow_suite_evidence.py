@@ -20,6 +20,7 @@ from quality_platform.evaluation.regression import (
 from quality_platform.evaluation.release import (
     IndependentReviews,
     create_calibration,
+    digest,
     review_release,
 )
 from quality_platform.evaluation.workflow_evidence import (
@@ -154,6 +155,32 @@ def test_actually_executed_pytest_evidence_pass_or_failure_binds_release_and_rej
     if failure:
         assert release.decision == ReleaseDecision.BLOCKED
         assert "critical offline workflow/policy suite failed" in release.reasons
+    else:
+        # The private packet's own checksum and identity checks have separate tests.
+        monkeypatch.setattr(
+            "quality_platform.evaluation.release.validate_review_packet", lambda _report: None
+        )
+        approved = BaselineApproval(
+            candidate_run_id=attached.run_id,
+            status=BaselineApprovalStatus.APPROVED,
+            reviewer="test-only release human",
+            reviewed_at=datetime.now(UTC),
+            reviewed_evidence=(
+                f"report:{digest(attached)}",
+                f"human-review:{digest(human)}",
+                f"calibration:{digest(calibration)}",
+                f"thresholds:{digest(thresholds)}",
+                f"workflow-suite:{digest(evidence)}",
+                "regression-decision:PASS",
+                "small-sample:acknowledged",
+            ),
+        )
+        assert (
+            review_release(
+                attached, None, thresholds, human, calibration, approved, bootstrap=True
+            ).decision
+            == ReleaseDecision.PASS
+        )
 
     with pytest.raises(ValueError, match="different benchmark"):
         validate_workflow_evidence(candidate.model_copy(update={"run_id": "other"}), evidence)

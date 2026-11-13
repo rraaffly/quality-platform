@@ -22,6 +22,7 @@ from quality_platform.evaluation.models import (
     Severity,
     TaskType,
 )
+from quality_platform.evaluation.release import ReleaseReview, load_baseline
 from quality_platform.evaluation.reporting import write_report
 from quality_platform.evaluation.runner import run_offline_suite
 from quality_platform.storage.database import open_database
@@ -251,7 +252,7 @@ def test_benchmark_worker_persists_once_and_restores_environment(web, monkeypatc
     assert calls == [("v0.1", "analyst", None, "5.0")]
 
 
-def test_blind_web_review_precedes_calibration(web) -> None:
+def test_blind_web_review_precedes_calibration(web, monkeypatch: pytest.MonkeyPatch) -> None:
     client, control, headers = web
     client.post(
         "/api/commands",
@@ -348,29 +349,48 @@ def test_blind_web_review_precedes_calibration(web) -> None:
     assert result["result"]["sample_size"] == 1
     calibration_id = result["result"]["calibration_id"]
     thresholds = {
-        "version": "v1", "status": "CALIBRATED", "minimum_precision": 0.95,
-        "minimum_recall": 0.95, "minimum_evidence_accuracy": 0.98,
-        "maximum_precision_regression": 0.02, "maximum_recall_regression": 0.02,
+        "version": "v1",
+        "status": "CALIBRATED",
+        "minimum_precision": 0.95,
+        "minimum_recall": 0.95,
+        "minimum_evidence_accuracy": 0.98,
+        "maximum_precision_regression": 0.02,
+        "maximum_recall_regression": 0.02,
         "maximum_evidence_regression": 0.02,
     }
     release_base = {
-        "kind": "evaluation_action", "project_id": "P1", "report_id": report_id,
-        "human_id": human_id, "calibration_id": calibration_id, "thresholds": thresholds,
+        "kind": "evaluation_action",
+        "project_id": "P1",
+        "report_id": report_id,
+        "human_id": human_id,
+        "calibration_id": calibration_id,
+        "thresholds": thresholds,
     }
     prepared = client.post(
-        "/api/evaluation/jobs", json={**release_base, "action": "prepare_release"},
+        "/api/evaluation/jobs",
+        json={**release_base, "action": "prepare_release"},
         headers={**headers, "Idempotency-Key": "prepare-release"},
     )
     assert prepared.status_code == 202
     asyncio.run(run_worker(control.state, once=True))
-    hashes = client.get(f"/api/evaluation/jobs/{prepared.json()['job_id']}").json()["result"]["reviewed_evidence"]
+    hashes = client.get(f"/api/evaluation/jobs/{prepared.json()['job_id']}").json()["result"][
+        "reviewed_evidence"
+    ]
     assert any(item.startswith("report:") for item in hashes)
     release = client.post(
         "/api/evaluation/jobs",
-        json={**release_base, "action": "review_release", "bootstrap": True, "approval": {
-            "candidate_run_id": persisted.run_id, "status": "APPROVED", "reviewer": "QA",
-            "reviewed_at": datetime.now(UTC).isoformat(), "reviewed_evidence": hashes,
-        }},
+        json={
+            **release_base,
+            "action": "review_release",
+            "bootstrap": True,
+            "approval": {
+                "candidate_run_id": persisted.run_id,
+                "status": "APPROVED",
+                "reviewer": "QA",
+                "reviewed_at": datetime.now(UTC).isoformat(),
+                "reviewed_evidence": hashes,
+            },
+        },
         headers={**headers, "Idempotency-Key": "release-review"},
     )
     assert release.status_code == 202
@@ -380,11 +400,51 @@ def test_blind_web_review_precedes_calibration(web) -> None:
     assert release_result["result"]["decision"] != "PASS"
     promoted = client.post(
         "/api/evaluation/jobs",
-        json={**release_base, "action": "promote_baseline",
-              "release_id": release_result["result"]["release_id"], "confirm_promotion": True},
+        json={
+            **release_base,
+            "action": "promote_baseline",
+            "release_id": release_result["result"]["release_id"],
+            "confirm_promotion": True,
+        },
         headers={**headers, "Idempotency-Key": "promote"},
     )
     assert promoted.status_code == 202
     asyncio.run(run_worker(control.state, once=True))
-    assert client.get(f"/api/evaluation/jobs/{promoted.json()['job_id']}").json()["status"] == "FAILED"
+    assert (
+        client.get(f"/api/evaluation/jobs/{promoted.json()['job_id']}").json()["status"] == "FAILED"
+    )
     assert not (control.state / "evaluation" / "baselines" / "P1" / "latest-approved.json").exists()
+
+    # Exercise the Web promotion adapter with a passing core decision. Core gate behavior
+    # is separately exercised by the rejected real review above and release policy tests.
+    store = EvaluationStore(control.state)
+    previous = store.load(release_result["result"]["release_id"], ReleaseReview)
+    passing = previous.model_copy(update={"decision": ReleaseDecision.PASS, "reasons": ()})
+    passing_id = store.save("release-review", passing)
+    monkeypatch.setattr(
+        "quality_platform.web.evaluation.review_release", lambda *args, **kwargs: passing
+    )
+    approved = client.post(
+        "/api/evaluation/jobs",
+        json={
+            **release_base,
+            "action": "promote_baseline",
+            "release_id": passing_id,
+            "confirm_promotion": True,
+        },
+        headers={**headers, "Idempotency-Key": "promote-passing"},
+    )
+    assert approved.status_code == 202
+    asyncio.run(run_worker(control.state, once=True))
+    assert (
+        client.get(f"/api/evaluation/jobs/{approved.json()['job_id']}").json()["status"]
+        == "SUCCEEDED"
+    )
+    baseline_dir = control.state / "evaluation" / "baselines" / "P1"
+    assert load_baseline(baseline_dir).report.run_id == persisted.run_id  # type: ignore[union-attr]
+    assert len(list((baseline_dir / "history").glob("*.json"))) == 1
+    with control.connect() as db:
+        db.execute("UPDATE jobs SET status='INTERRUPTED' WHERE id=?", (approved.json()["job_id"],))
+    control.retry(approved.json()["job_id"])
+    asyncio.run(run_worker(control.state, once=True))
+    assert len(list((baseline_dir / "history").glob("*.json"))) == 1
