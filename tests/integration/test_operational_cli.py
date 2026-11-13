@@ -57,6 +57,26 @@ def test_default_data_root_is_platform_user_directory(monkeypatch, tmp_path: Pat
     assert data_root(None) == (tmp_path / "QualityPlatform").resolve()
 
 
+def test_setup_accepts_password_from_stdin_for_automation(tmp_path: Path) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "database_path: ./domain.sqlite\nworkspace_root: ./workspace\n"
+        "agent_models:\n"
+        "  orchestrator: {provider: openai, model_id: offline}\n"
+        "  analyst: {provider: openai, model_id: offline}\n"
+        "  planner: {provider: openai, model_id: offline}\n"
+        "  evaluator: {provider: openai, model_id: offline}\n",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(
+        app,
+        ["setup", "--data-dir", str(tmp_path / "data"), "--config", str(config),
+         "--owner", "qa", "--password-stdin"],
+        input="private-test-password\n",
+    )
+    assert result.exit_code == 0, result.output
+
+
 def _ready_state(tmp_path: Path) -> Path:
     model = ModelSpec(provider="openai", model_id="offline")
     config = AppConfig(

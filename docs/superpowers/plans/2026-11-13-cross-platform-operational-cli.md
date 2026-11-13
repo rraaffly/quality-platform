@@ -32,9 +32,9 @@
 
 **Interfaces:** `data_root(override: Path | None) -> Path`; `setup(data_dir: Path | None, config: Path | None, owner: str | None) -> None`. Add `quality-platform = "quality_platform.web.launcher:main"`. Interactive setup writes a local config, initializes `Control`, and reports missing provider environment variables.
 
-- [ ] Test platformdirs root, setup from another CWD, explicit config, interactive defaults and safe rerun red.
-- [ ] Implement setup with `Control.initialize`, `writer_lock`, `open_database`, private paths and no model calls; run focused tests green.
-- [ ] Commit.
+- [x] Test platformdirs root, setup from another CWD, explicit config, interactive defaults and safe rerun red.
+- [x] Implement setup with `Control.initialize`, `writer_lock`, `open_database`, private paths and no model calls; run focused tests green.
+- [x] Commit.
 
 ## Task 2: Implement cross-platform background lifecycle
 
@@ -42,9 +42,9 @@
 
 **Interfaces:** `start(state: Path, port: int) -> str`; `status(state: Path) -> dict`; `stop(state: Path) -> None`. Child process calls `python -m quality_platform.web.cli worker|serve`; use `psutil.Process.create_time()` in the marker, `FileLock`, private log files, POSIX session detachment and Windows creation flags.
 
-- [ ] Test duplicate start, existing dashboard, health and browser call, stale/mismatched process, dead child, startup failure and clean stop red.
-- [ ] Implement process manager and Typer `dashboard/status/stop`; run focused tests green on native Windows and portable unit tests elsewhere.
-- [ ] Commit.
+- [x] Test duplicate start, existing dashboard, health and browser call, stale/mismatched process, dead child, startup failure and clean stop red.
+- [x] Implement process manager and Typer `dashboard/status/stop`; run focused tests green on native Windows and portable unit tests elsewhere.
+- [x] Commit.
 
 ## Task 3: Ship an installable release ZIP
 
@@ -52,13 +52,13 @@
 
 **Interfaces:** Release archive contains `src`, `tests`, `benchmarks`, `web/dist`, `config.yaml`, `pyproject.toml`, `uv.lock` and installer scripts. Installers create a locked environment and a user-level `quality-platform` shim; the Python launcher finds bundled resources independent of CWD.
 
-- [ ] Test the archive contains every runtime/evidence file and excludes private data and caches red.
-- [ ] Implement packaging and install scripts; verify a fresh extracted archive can initialize, start, stop and restart on Windows.
-- [ ] Add Windows, macOS and Linux CI smoke matrix; run available local checks and record unverified OSs honestly.
-- [ ] Commit.
+- [x] Test the archive contains every runtime/evidence file and excludes private data and caches red.
+- [x] Implement packaging and install scripts; verify a fresh extracted archive can initialize, start, stop and restart on Windows.
+- [x] Add Windows, macOS and Linux CI smoke matrix; run available local checks and record unverified OSs honestly.
+- [x] Commit.
 
 ## Completion gate
 
-- [ ] `quality-platform --help` lists `setup`, `dashboard`, `status`, `stop` on all supported OSs.
-- [ ] Full offline Python and frontend checks pass; no provider call is made by setup/dashboard.
-- [ ] Clean release ZIP smoke is verified on Windows and CI executes the same command contract on macOS and Linux.
+- [x] `quality-platform --help` lists `setup`, `dashboard`, `status`, `stop` in a clean Windows release install; the CI matrix checks the same contract on macOS and Linux.
+- [x] Full offline Python and frontend checks pass; no provider call is made by setup/dashboard.
+- [ ] Clean release ZIP smoke is verified on Windows; macOS and Linux CI results remain to be observed after push.

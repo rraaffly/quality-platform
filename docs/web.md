@@ -1,82 +1,48 @@
 # Penggunaan web lokal
 
-**Status:** aplikasi Web lokal telah diimplementasikan dan diuji offline di Windows. Spesifikasi CLI v0.2 adalah catatan historis; batas produk sekarang adalah Web.
+**Status:** aplikasi Web lokal dioperasikan melalui launcher `quality-platform` pada Windows, macOS, dan Linux. Spesifikasi CLI QA v0.2 adalah catatan historis; batas produk sekarang adalah Web.
 
 ## Persiapan dan menjalankan layanan
 
 Web ditujukan untuk satu pemilik, satu mesin, SQLite lokal, dan satu worker pemilik hak tulis.
-Jalankan `uv sync --dev`, lalu build frontend React sebelum menjalankan server:
+Unduh arsip rilis, ekstrak ke direktori permanen, lalu jalankan `scripts/install.ps1` di PowerShell
+Windows atau `sh scripts/install.sh` di macOS/Linux. Installer memakai `uv sync --locked --no-dev`
+untuk menyiapkan Python 3.12 dan membuat perintah `quality-platform` di direktori bin pengguna.
+Frontend React sudah dibundel dalam arsip rilis; Bun hanya dibutuhkan saat membangun rilis dari
+source checkout. Lihat [README](../README.md) untuk langkah build dan pengaturan `PATH`.
 
-```bash
-cd web
-bun install --frozen-lockfile
-bun run build
-cd ..
+Jalankan perintah berikut dari direktori mana pun:
+
+```sh
+quality-platform setup
+quality-platform dashboard
+quality-platform status
+quality-platform stop
 ```
 
-`qa-web serve` menyajikan `web/dist` dan API di origin yang sama. Build di setiap checkout;
-`web/dist` tidak disimpan di Git atau dibundel dalam paket Python. Jika build hilang,
-halaman UI mengembalikan HTTP 503 berisi petunjuk build. Jangan letakkan React dan API di origin
-yang berbeda: sesi dan CSRF sengaja menggunakan cookie HttpOnly tanpa CORS. Setelah itu sesuaikan
-[template config.yaml](../config.yaml): ganti seluruh
-placeholder `model_id` dan pilih provider yang memiliki credential Anda. Lihat juga
-konfigurasi contoh di file tersebut.
-Pilih provider/model secara eksplisit; tidak ada model default atau fallback otomatis. Gunakan
-path absolut untuk konfigurasi dan direktori state agar semua proses membuka instalasi yang sama.
+`setup` meminta provider/model, pemilik, dan kata sandi. Ia menyimpan konfigurasi, database,
+workspace, dan state di direktori data pengguna, bukan di direktori instalasi.
+Anda juga dapat memakai `--config /absolute/config.yaml`, `--owner qa`, dan `--data-dir /absolute/data`
+untuk konfigurasi yang sudah disiapkan. Pilih provider/model secara eksplisit; tidak ada model
+default atau fallback otomatis. `setup` berulang tidak mengubah akun atau data yang sudah ada.
+Jangan masukkan kata sandi sebagai argumen shell. State hanya menyimpan hash kata sandi.
 
-```bash
-uv run qa-web init --config /absolute/config.yaml --state /absolute/web-state --owner qa
-```
+Kredensial `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, atau `GOOGLE_API_KEY` disediakan lewat environment
+sebelum `dashboard` dinyalakan. `.env` tidak otomatis dimuat. Jangan masukkan rahasia ke YAML,
+instruksi, dokumen, log, atau laporan. Browser tidak menerima kredensial provider. Jika mengubah
+environment credential, jalankan `quality-platform stop` lalu `quality-platform dashboard` lagi.
 
-`init` meminta kata sandi dan konfirmasi tanpa menampilkannya. Jangan masukkan kata sandi lewat
-argumen shell. State menyimpan path konfigurasi server, pengaturan non-rahasia, serta database
-kontrol dengan hash kata sandi, bukan kata sandi plaintext. Lindungi direktori state dengan hak
-akses pemilik; state dan workspace bukan bahan untuk commit atau dibagikan.
+`dashboard` memulai satu worker dan satu server loopback di background, menunggu health API, lalu
+membuka browser. Ia tidak otomatis menjalankan model atau benchmark. `status` menunjukkan keadaan
+layanan; `stop` menghentikan proses milik launcher. Log ada di `state/logs`, dan marker proses
+menyimpan PID beserta waktu mulai untuk mencegah penghentian proses lain saat PID dipakai ulang.
+Untuk port lain gunakan `quality-platform dashboard --port 8001`; untuk tidak membuka browser
+gunakan `--no-open`. Hentikan layanan sebelum backup konsisten.
 
-Kredensial `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, atau `GOOGLE_API_KEY` hanya disediakan lewat
-environment proses server/worker yang memerlukannya. `.env` tidak otomatis dimuat. Tidak ada
-formulir web untuk API key; jangan masukkan rahasia ke instruksi, dokumen sumber, YAML model,
-kode, log, atau laporan. Browser tidak menerima kredensial provider.
-
-Jalankan dua proses berikut di terminal terpisah dengan state yang sama:
-
-```bash
-uv run qa-web worker --state /absolute/web-state
-uv run qa-web serve --state /absolute/web-state --port 8000
-```
-
-Server secara default hanya mendengarkan loopback. Buka alamat loopback pada mesin tempat
-layanan berjalan dan masuk sebagai pemilik yang dibuat saat `init`. Worker memproses antrean
-persisten; server menyajikan UI dan mencatat permintaan. Menjalankan `init`, worker, atau server
-tidak boleh otomatis memicu panggilan model berbayar maupun deployment remote.
-
-Alur offline sudah diuji di Windows native; tes symlink memerlukan hak membuat symlink dan dapat
-dilewati jika hak itu tidak tersedia. Contoh `/absolute/...` adalah path POSIX; di PowerShell gunakan
-path absolut Windows dengan tanda kutip bila perlu.
-
-### Menjalankan di Windows dengan satu perintah
-
-Simpan konfigurasi, database, workspace, dan state di direktori privat di luar repo. Salin
-`config.yaml`, isi semua model ID, lalu ubah `database_path` dan `workspace_root` menjadi path
-absolut di direktori tersebut. Setelah `uv sync --dev`, `bun install --frozen-lockfile`, dan
-`bun run build`, lakukan inisialisasi satu kali:
-
-```powershell
-uv run qa-web init --config "C:\QualityPlatformData\config.yaml" --state "C:\QualityPlatformData\state" --owner qa
-```
-
-Untuk penggunaan berikutnya, jalankan dari root repo:
-
-```powershell
-.\scripts\start-local.ps1 -State "C:\QualityPlatformData\state" -Port 8000
-# Buka http://127.0.0.1:8000
-.\scripts\stop-local.ps1 -State "C:\QualityPlatformData\state"
-```
-
-Launcher hanya menyalakan satu worker dan satu server loopback; ia tidak memulai model atau
-benchmark. Proses tersembunyi mencatat output di `state/logs`, dan `local-processes.json` menyimpan
-PID serta waktu mulai untuk mencegah penghentian proses lain saat PID dipakai ulang. Jika startup
-gagal, periksa log. Untuk backup konsisten, hentikan keduanya lebih dulu dengan `stop-local.ps1`.
+`qa-web serve` tetap tersedia sebagai perintah operasional tingkat rendah untuk konfigurasi server
+lanjutan. Server dan UI berbagi origin agar cookie sesi HttpOnly dan proteksi CSRF bekerja.
+Jika build frontend tidak ada pada source checkout, server mengembalikan HTTP 503 dengan petunjuk
+build. Arsip rilis selalu mewajibkan build ini.
 
 ## Alur kerja dan keputusan manusia
 

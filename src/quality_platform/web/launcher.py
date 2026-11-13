@@ -1,6 +1,7 @@
 """User-facing operational commands for the local Web application."""
 
 import os
+import sys
 import webbrowser
 from pathlib import Path
 from typing import Annotated
@@ -54,6 +55,7 @@ def setup(
     data_dir: Annotated[Path | None, typer.Option(help="Private user data directory")] = None,
     config: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
     owner: Annotated[str | None, typer.Option()] = None,
+    password_stdin: Annotated[bool, typer.Option(help="Read owner password from standard input")] = False,
 ) -> None:
     """Initialize owner credentials, model settings and private local state once."""
     root = data_root(data_dir)
@@ -71,9 +73,12 @@ def setup(
     else:
         values = _interactive_config(root)
     selected_owner = owner or typer.prompt("Owner name", default="qa")
-    password = typer.prompt(
-        "Owner password (at least 12 characters)", hide_input=True, confirmation_prompt=True
-    )
+    if password_stdin:
+        password = sys.stdin.readline().rstrip("\r\n")
+    else:
+        password = typer.prompt(
+            "Owner password (at least 12 characters)", hide_input=True, confirmation_prompt=True
+        )
     if len(password) < 12:
         raise typer.BadParameter("Owner password must have at least 12 characters")
     values.workspace_root.mkdir(parents=True, exist_ok=True)
