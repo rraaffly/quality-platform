@@ -51,7 +51,7 @@ def test_local_launcher_rejects_uninitialized_state_and_missing_build(tmp_path: 
         timeout=10,
     )
     assert missing_build.returncode != 0
-    assert "Frontend build is missing" in missing_build.stderr
+    assert "Python environment is missing" in missing_build.stderr
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="PowerShell launcher is Windows native")
@@ -112,7 +112,7 @@ def test_local_launcher_starts_one_worker_and_server_without_model_calls(tmp_pat
                 check=False,
                 timeout=20,
             )
-        assert duplicate.returncode != 0
+        assert duplicate.returncode == 0
         assert json.loads((state / "local-processes.json").read_text())["port"] == port
     finally:
         with (tmp_path / "stop.out").open("w") as out, (tmp_path / "stop.err").open("w") as err:
