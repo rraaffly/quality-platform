@@ -1,8 +1,13 @@
 @import "tailwindcss";
+@import '@fontsource-variable/instrument-sans';
+@import '@fontsource-variable/spline-sans-mono';
+
 
 /* Tailwind utilities read Arc tokens; foundation.css owns their values and themes. */
 @theme inline {
-  --font-sans: var(--font-body);
+  --font-display: 'Instrument Sans Variable', sans-serif;
+  --font-sans: 'Instrument Sans Variable', sans-serif;
+  --font-mono: 'Spline Sans Mono Variable', monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--surface);
