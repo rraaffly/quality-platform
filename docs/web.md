@@ -53,9 +53,33 @@ layanan berjalan dan masuk sebagai pemilik yang dibuat saat `init`. Worker mempr
 persisten; server menyajikan UI dan mencatat permintaan. Menjalankan `init`, worker, atau server
 tidak boleh otomatis memicu panggilan model berbayar maupun deployment remote.
 
-Dukungan Windows native dituju, tetapi **belum diuji dalam orb Linux ini**. Contoh `/absolute/...`
-adalah path POSIX; di PowerShell gunakan path absolut Windows dengan tanda kutip bila perlu.
-Jangan menyimpulkan kompatibilitas Windows dari hasil tes Linux saja.
+Alur offline sudah diuji di Windows native; tes symlink memerlukan hak membuat symlink dan dapat
+dilewati jika hak itu tidak tersedia. Contoh `/absolute/...` adalah path POSIX; di PowerShell gunakan
+path absolut Windows dengan tanda kutip bila perlu.
+
+### Menjalankan di Windows dengan satu perintah
+
+Simpan konfigurasi, database, workspace, dan state di direktori privat di luar repo. Salin
+`config.yaml`, isi semua model ID, lalu ubah `database_path` dan `workspace_root` menjadi path
+absolut di direktori tersebut. Setelah `uv sync --dev`, `bun install --frozen-lockfile`, dan
+`bun run build`, lakukan inisialisasi satu kali:
+
+```powershell
+uv run qa-web init --config "C:\QualityPlatformData\config.yaml" --state "C:\QualityPlatformData\state" --owner qa
+```
+
+Untuk penggunaan berikutnya, jalankan dari root repo:
+
+```powershell
+.\scripts\start-local.ps1 -State "C:\QualityPlatformData\state" -Port 8000
+# Buka http://127.0.0.1:8000
+.\scripts\stop-local.ps1 -State "C:\QualityPlatformData\state"
+```
+
+Launcher hanya menyalakan satu worker dan satu server loopback; ia tidak memulai model atau
+benchmark. Proses tersembunyi mencatat output di `state/logs`, dan `local-processes.json` menyimpan
+PID serta waktu mulai untuk mencegah penghentian proses lain saat PID dipakai ulang. Jika startup
+gagal, periksa log. Untuk backup konsisten, hentikan keduanya lebih dulu dengan `stop-local.ps1`.
 
 ## Alur kerja dan keputusan manusia
 

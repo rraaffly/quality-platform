@@ -38,8 +38,13 @@ snapshots or benchmark reports.
 ## Web lokal
 
 Antarmuka web menambahkan satu akun pemilik, antrean persisten, dan worker lokal di atas aturan
-domain CLI yang sama. Alur HTTP/worker diuji offline di Linux; dukungan native Windows/macOS
-belum diverifikasi. CLI mandiri tetap tersedia.
+domain yang sama. Alur HTTP/worker diuji offline di Windows dan Linux; macOS belum diverifikasi.
+
+Di Windows, setelah build dan `qa-web init` sekali, gunakan
+`.\scripts\start-local.ps1 -State <state>` dan `.\scripts\stop-local.ps1 -State <state>`.
+Launcher menyalakan server dan worker lokal tanpa memanggil model; detail ada di
+[panduan web](docs/web.md). Suite offline telah dijalankan di Windows native; satu tes symlink
+dilewati ketika hak membuat symlink tidak tersedia.
 
 Siapkan YAML sesuai [panduan CLI](docs/cli.md), lalu jalankan inisialisasi dan dua proses terpisah:
 
