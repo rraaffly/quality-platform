@@ -1,5 +1,5 @@
-import { Link } from '@tanstack/react-router'
-import { ShieldCheck } from 'lucide-react'
+import { Link } from "@tanstack/react-router";
+import { ShieldCheck } from "lucide-react";
 
 export function ProtectedHeader() {
   return (
@@ -9,7 +9,9 @@ export function ProtectedHeader() {
           <div className="flex h-6 w-6 items-center justify-center bg-primary text-primary-foreground shadow-2xs">
             <ShieldCheck className="size-3.5" />
           </div>
-          <span className="text-sm font-extrabold tracking-tight text-foreground">PGI Quality Platform</span>
+          <span className="text-sm font-extrabold tracking-tight text-foreground">
+            PGI Quality Platform
+          </span>
         </Link>
       </div>
 
@@ -17,9 +19,7 @@ export function ProtectedHeader() {
         <span className="text-xs">Breadcrumb</span>
       </div>
 
-      <div className="flex items-center gap-2">
-        {/* <NotificationPopover /> */}
-      </div>
+      <div className="flex items-center gap-2"></div>
     </header>
-  )
+  );
 }
