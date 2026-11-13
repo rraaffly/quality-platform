@@ -11,6 +11,7 @@ from sqlalchemy.exc import NoResultFound
 from quality_platform.application import WorkflowApplication, create_project, create_workflow
 from quality_platform.documents.ingestion import ingest_markdown
 from quality_platform.domain.models import StakeholderAnswer
+from quality_platform.evaluation.models import BenchmarkReport
 from quality_platform.services.revisions import RevisionDraft
 from quality_platform.services.scopes import ScopeAction, ScopeDecision, propose_scope_edit
 from quality_platform.storage.checkpoints import create_checkpoint_saver
@@ -18,6 +19,7 @@ from quality_platform.storage.database import open_database
 from quality_platform.storage.ownership import writer_lock
 from quality_platform.storage.repositories import QaRepositories
 from quality_platform.web.control import Conflict, Control
+from quality_platform.web.evaluation import EvaluationImportCommand, EvaluationStore
 from quality_platform.web.models import Command
 from quality_platform.web.queries import workflow_view
 
@@ -33,6 +35,28 @@ async def dispatch(
     control: Control, repo: QaRepositories, job: dict[str, Any], *, model_factory: Any = None
 ) -> Any:
     payload = json.loads(job["payload"])
+    if payload.get("kind") == "evaluation_import_report":
+        request = EvaluationImportCommand.model_validate(payload)
+        repo.read_project_record(request.project_id, request.project_id)
+        staged = confined(
+            control.state,
+            control.state / "evaluation" / "staged" / f"{request.report_hash}.json",
+        )
+        raw = staged.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != request.report_hash:
+            raise ValueError("Staged report changed")
+        report = BenchmarkReport.model_validate_json(raw)
+        identity = EvaluationStore(control.state).save("benchmark-report", report)
+        summary = report.model_dump(
+            mode="json",
+            include={"run_id", "dataset_version", "decision", "readiness_labels", "candidate", "rubric_id", "rubric_version", "overall_precision", "overall_recall", "eligible_count", "excluded_count", "case_scores", "metric_variance", "total_cost_usd", "input_fingerprint", "output_fingerprint"},
+        )
+        with control.connect() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO reports VALUES (?,?,?)",
+                (identity, request.project_id, json.dumps(summary, sort_keys=True)),
+            )
+        return {"report_id": identity, "run_id": report.run_id, "decision": report.decision.value}
     uploads = payload.pop("uploads", [])
     command = Command.model_validate(payload)
     config = (

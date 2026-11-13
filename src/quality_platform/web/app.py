@@ -19,7 +19,10 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from quality_platform.evaluation.models import BenchmarkReport
+from quality_platform.evaluation.reporting import _restrict_private_path
 from quality_platform.web.control import Conflict, Control, digest
+from quality_platform.web.evaluation import EvaluationImportCommand
 from quality_platform.web.models import Command, Settings
 from quality_platform.web.queries import (
     artifact_content,
@@ -332,6 +335,49 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         return await accept(
             request, await request.json(), request.headers.get("idempotency-key", "")
         )
+
+    @app.post("/api/evaluation/jobs")
+    async def evaluation_job(request: Request) -> Response:
+        form = await request.form(max_files=1, max_fields=3, max_part_size=MAX_FILE)
+        if form.get("kind") != "register_report":
+            raise HTTPException(422, "Unsupported evaluation action")
+        key = request.headers.get("idempotency-key", "")
+        if not key or len(key) > 200:
+            raise HTTPException(422, "Idempotency key is required")
+        project = str(form.get("project_id", ""))
+        with reader(database) as repo:
+            repo.read_project_record(project, project)
+        upload = form.get("file")
+        if not isinstance(upload, UploadFile) or upload.filename != "report.json":
+            raise HTTPException(422, "Upload a report.json file")
+        raw = await upload.read(MAX_FILE + 1)
+        if len(raw) > MAX_FILE:
+            raise HTTPException(413, "Report exceeds size limit")
+        BenchmarkReport.model_validate_json(raw)
+        identity = hashlib.sha256(raw).hexdigest()
+        directory = confined(control.state, control.state / "evaluation" / "staged")
+        directory.mkdir(parents=True, exist_ok=True)
+        _restrict_private_path(directory.parent, 0o700)
+        _restrict_private_path(directory, 0o700)
+        target = confined(control.state, directory / f"{identity}.json")
+        if target.exists():
+            if target.read_bytes() != raw:
+                raise Conflict("Staged report changed")
+        else:
+            with target.open("xb") as stream:
+                stream.write(raw)
+        _restrict_private_path(target, 0o600)
+        command = EvaluationImportCommand(
+            kind="evaluation_import_report", project_id=project, report_hash=identity
+        )
+        return accepted(request, control.enqueue(command.model_dump(mode="json"), key, request.state.session["actor"]))
+
+    @app.get("/api/evaluation/jobs/{identity}")
+    async def evaluation_job_status(request: Request, identity: str) -> Any:
+        job = job_context(identity, request.state.session["actor"])
+        if job["command"]["kind"] != "evaluation_import_report":
+            raise HTTPException(404, "Evaluation job not found")
+        return job
 
     @app.post("/commands")
     async def form_command(request: Request) -> Response:
