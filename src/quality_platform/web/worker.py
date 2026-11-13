@@ -20,8 +20,10 @@ from quality_platform.storage.ownership import writer_lock
 from quality_platform.storage.repositories import QaRepositories
 from quality_platform.web.control import Conflict, Control
 from quality_platform.web.evaluation import (
+    EvaluationActionCommand,
     EvaluationImportCommand,
     EvaluationRunCommand,
+    execute_action,
     execute_run,
     register_report,
 )
@@ -40,6 +42,10 @@ async def dispatch(
     control: Control, repo: QaRepositories, job: dict[str, Any], *, model_factory: Any = None
 ) -> Any:
     payload = json.loads(job["payload"])
+    if payload.get("kind") == "evaluation_action":
+        action_command = EvaluationActionCommand.model_validate(payload)
+        repo.read_project_record(action_command.project_id, action_command.project_id)
+        return await execute_action(control, action_command, job["id"])
     if payload.get("kind") == "run_benchmark":
         benchmark_command = EvaluationRunCommand.model_validate(payload)
         repo.read_project_record(benchmark_command.project_id, benchmark_command.project_id)

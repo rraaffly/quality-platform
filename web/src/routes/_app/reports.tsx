@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { type FormEvent } from "react";
 import { Button } from "#/components/arc/button/button";
 import { Alert } from "#/components/arc/alert/alert";
@@ -9,7 +9,14 @@ import { type Project, useAction, useResource } from "#/lib/api";
 type Report = {
   id: string;
   project_id: string;
-  report: { run_id: string; decision: string; dataset_version: string; [key: string]: unknown };
+  report: {
+    run_id: string;
+    decision: string;
+    dataset_version: string;
+    source?: string;
+    record_id?: string;
+    [key: string]: unknown;
+  };
 };
 export const Route = createFileRoute("/_app/reports")({ component: ReportsPage });
 
@@ -212,6 +219,15 @@ function ReportsPage() {
               <p className="text-sm text-muted-foreground">
                 Project {entry.project_id} · Dataset {entry.report.dataset_version}
               </p>
+              {entry.report.source === "web" && entry.report.record_id && (
+                <Link
+                  to="/evaluation/$project/$report"
+                  params={{ project: entry.project_id, report: entry.report.record_id }}
+                  className="text-sm text-primary underline"
+                >
+                  Review candidate and attach evidence
+                </Link>
+              )}
               <pre className="max-h-[36rem] overflow-auto whitespace-pre-wrap break-words text-xs">
                 {JSON.stringify(entry.report, null, 2)}
               </pre>

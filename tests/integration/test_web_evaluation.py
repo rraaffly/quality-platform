@@ -1,16 +1,33 @@
 import asyncio
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from quality_platform.config.models import AgentModels, AppConfig, ModelSpec
-from quality_platform.evaluation.models import BenchmarkReport, CandidateSnapshot, ReleaseDecision
+from quality_platform.evaluation.models import (
+    BenchmarkCase,
+    BenchmarkReport,
+    CandidateSnapshot,
+    Dataset,
+    EvaluationOutput,
+    EvaluatorAssessment,
+    ExpectedItem,
+    GoldRecord,
+    GoldStatus,
+    ObservedItem,
+    ReleaseDecision,
+    Severity,
+    TaskType,
+)
+from quality_platform.evaluation.reporting import write_report
+from quality_platform.evaluation.runner import run_offline_suite
 from quality_platform.storage.database import open_database
 from quality_platform.web.app import create_app
 from quality_platform.web.control import Control
-from quality_platform.web.evaluation import EvaluationStore
+from quality_platform.web.evaluation import EvaluationStore, register_report
 from quality_platform.web.worker import run_worker
 
 
@@ -232,3 +249,100 @@ def test_benchmark_worker_persists_once_and_restores_environment(web, monkeypatc
     control.retry(queued.json()["job_id"])
     asyncio.run(run_worker(control.state, once=True))
     assert calls == [("v0.1", "analyst", None, "5.0")]
+
+
+def test_blind_web_review_precedes_calibration(web) -> None:
+    client, control, headers = web
+    client.post(
+        "/api/commands",
+        json={"kind": "create_project", "project_id": "P1", "name": "Project"},
+        headers={**headers, "Idempotency-Key": "project"},
+    )
+    asyncio.run(run_worker(control.state, once=True))
+    case = BenchmarkCase(
+        case_id="case-1",
+        task_type=TaskType.ANALYST,
+        input_snapshot_ids=("doc",),
+        severity=Severity.HIGH,
+        gold=GoldRecord(
+            status=GoldStatus.APPROVED,
+            approved_by="QA",
+            approved_at=datetime.now(UTC),
+            expected_items=(
+                ExpectedItem(
+                    id="R1", kind="REQUIREMENT", semantic_definition="A user can sign in."
+                ),
+            ),
+        ),
+    )
+    output = EvaluationOutput(
+        observed_items=(ObservedItem(id="R1", kind="REQUIREMENT", content="A user can sign in."),),
+        evaluator_assessment=EvaluatorAssessment(
+            case_id="case-1",
+            model_snapshot_id="fake-evaluator",
+            rating=5,
+            critical=False,
+            uncertainty=0,
+            judgments=(),
+        ),
+    )
+    report = run_offline_suite(
+        Dataset(version="v1", rubric_version="v1", cases=(case,)),
+        lambda _case: output,
+        candidate=CandidateSnapshot(
+            candidate_id="fake",
+            commit_sha="abc",
+            config_hash="abc",
+            model_snapshot_id="abc",
+            prompt_snapshot_id="abc",
+        ),
+    )
+    report_path, _ = write_report(report, control.state / "evaluation" / "runs")
+    persisted = BenchmarkReport.model_validate_json(report_path.read_text(encoding="utf-8"))
+    report_id = register_report(control, "P1", persisted, source="web")["report_id"]
+    packet = client.get(f"/api/projects/P1/evaluation/{report_id}/review-packet")
+    assert packet.status_code == 200
+    assert "A user can sign in." in packet.text
+    assert "evaluator_assessment" not in packet.text
+    review = {
+        "case_id": "case-1",
+        "rating": 5,
+        "critical": False,
+        "reviewer": "QA",
+        "reviewed_at": datetime.now(UTC).isoformat(),
+        "blind": True,
+        "model_snapshot_id": None,
+        "uncertainty": 0,
+    }
+    action = {
+        "kind": "evaluation_action",
+        "action": "capture_review",
+        "project_id": "P1",
+        "report_id": report_id,
+        "reviews": [review],
+        "confirm_independent": True,
+    }
+    queued = client.post(
+        "/api/evaluation/jobs", json=action, headers={**headers, "Idempotency-Key": "review"}
+    )
+    assert queued.status_code == 202, queued.text
+    asyncio.run(run_worker(control.state, once=True))
+    human_id = client.get(f"/api/evaluation/jobs/{queued.json()['job_id']}").json()["result"][
+        "human_id"
+    ]
+    calibrated = client.post(
+        "/api/evaluation/jobs",
+        json={
+            "kind": "evaluation_action",
+            "action": "calibrate",
+            "project_id": "P1",
+            "report_id": report_id,
+            "human_id": human_id,
+        },
+        headers={**headers, "Idempotency-Key": "calibrate"},
+    )
+    assert calibrated.status_code == 202
+    asyncio.run(run_worker(control.state, once=True))
+    result = client.get(f"/api/evaluation/jobs/{calibrated.json()['job_id']}").json()
+    assert result["status"] == "SUCCEEDED"
+    assert result["result"]["sample_size"] == 1

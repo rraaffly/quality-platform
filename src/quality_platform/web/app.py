@@ -22,7 +22,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from quality_platform.evaluation.models import BenchmarkReport
 from quality_platform.evaluation.reporting import _restrict_private_path
 from quality_platform.web.control import Conflict, Control, digest
-from quality_platform.web.evaluation import EvaluationImportCommand, EvaluationRunCommand
+from quality_platform.web.evaluation import (
+    EvaluationActionCommand,
+    EvaluationImportCommand,
+    EvaluationRunCommand,
+    review_packet,
+    web_report,
+)
 from quality_platform.web.models import Command, Settings
 from quality_platform.web.queries import (
     artifact_content,
@@ -342,15 +348,22 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         if not key or len(key) > 200:
             raise HTTPException(422, "Idempotency key is required")
         if "application/json" in request.headers.get("content-type", ""):
-            run_command = EvaluationRunCommand.model_validate(await request.json())
-            with reader(database) as repo:
-                repo.read_project_record(run_command.project_id, run_command.project_id)
-            control.config(run_command.settings_id)
+            values = await request.json()
+            if values.get("kind") == "run_benchmark":
+                run_command = EvaluationRunCommand.model_validate(values)
+                with reader(database) as repo:
+                    repo.read_project_record(run_command.project_id, run_command.project_id)
+                control.config(run_command.settings_id)
+                payload = run_command.model_dump(mode="json")
+            else:
+                action_command = EvaluationActionCommand.model_validate(values)
+                with reader(database) as repo:
+                    repo.read_project_record(action_command.project_id, action_command.project_id)
+                web_report(control, action_command.project_id, action_command.report_id)
+                payload = action_command.model_dump(mode="json")
             return accepted(
                 request,
-                control.enqueue(
-                    run_command.model_dump(mode="json"), key, request.state.session["actor"]
-                ),
+                control.enqueue(payload, key, request.state.session["actor"]),
             )
         form = await request.form(max_files=1, max_fields=3, max_part_size=MAX_FILE)
         if form.get("kind") != "register_report":
@@ -391,9 +404,19 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
     @app.get("/api/evaluation/jobs/{identity}")
     async def evaluation_job_status(request: Request, identity: str) -> Any:
         job = job_context(identity, request.state.session["actor"])
-        if job["command"]["kind"] not in {"evaluation_import_report", "run_benchmark"}:
+        if job["command"]["kind"] not in {
+            "evaluation_import_report",
+            "run_benchmark",
+            "evaluation_action",
+        }:
             raise HTTPException(404, "Evaluation job not found")
         return job
+
+    @app.get("/api/projects/{project}/evaluation/{identity}/review-packet")
+    async def evaluation_review_packet(project: str, identity: str) -> Any:
+        with reader(database) as repo:
+            repo.read_project_record(project, project)
+        return review_packet(control, project, identity)
 
     @app.post("/commands")
     async def form_command(request: Request) -> Response:
