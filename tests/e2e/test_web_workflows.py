@@ -125,7 +125,7 @@ class WebJourney:
             headers={**self.headers("upload"), "Accept": "application/json"},
             follow_redirects=False,
         )
-        assert response.status_code in {202, 303}, response.text
+        assert response.status_code == 202, response.text
         identity = response.headers["Location"].split("/")[-1]
         return self.process(identity)
 
@@ -290,6 +290,12 @@ def web(tmp_path: Path) -> Any:
 def test_http_workflow_preserves_gates_evidence_versions_and_targeted_diff(web: WebJourney) -> None:
     web.setup_workflow()
     assert web.upload()["status"] == "SUCCEEDED"
+    workflow = web.client.get("/api/projects/P1/workflows/W1")
+    assert workflow.json()["snapshot"]["agent_models"]["analyst"]["model_id"] == "offline-analyst"
+    assert str(web.config.workspace_root) not in workflow.text
+    source = workflow.json()["sources"][0]["id"]
+    evidence = web.client.get(f"/api/projects/P1/workflows/W1/sources/{source}")
+    assert evidence.status_code == 200 and "account locks" in evidence.json()["content"]
     run = web.submit(
         "run", request_id="initial", instruction="Analyze and draft eligible plans and cases"
     )
@@ -320,12 +326,22 @@ def test_http_workflow_preserves_gates_evidence_versions_and_targeted_diff(web: 
         )
         assert duplicate["job_id"] == approval["job_id"]
     case_artifact = next(item for item in web.view()["artifacts"] if item["kind"] == "TEST_CASES")
+    detail = web.client.get(
+        f"/api/projects/P1/workflows/W1/artifacts/{case_artifact['id']}/versions/{case_artifact['version']}"
+    )
+    assert (
+        detail.status_code == 200
+        and detail.json()["item"]["content_hash"] == case_artifact["content_hash"]
+    )
+    assert "json" in detail.json()["content"]
     original = web.client.get(
         f"/api/projects/P1/workflows/W1/artifacts/{case_artifact['id']}/versions/{case_artifact['version']}/download"
     ).json()
     draft = web.perform(
         "revision", target_id=case_artifact["id"], instruction="Revise TC-012 title"
     )
+    review = web.client.get(f"/api/jobs/{draft['id']}/review")
+    assert review.status_code == 200 and review.json()["diff"] and review.json()["current_hash"]
     assert web.client.get(f"/jobs/{draft['id']}").status_code == 200
     web.perform("apply", draft_id=draft["id"], reviewed_diff_hash=draft["result"]["diff_hash"])
     latest = next(item for item in web.view()["artifacts"] if item["id"] == case_artifact["id"])
@@ -464,11 +480,11 @@ def test_answer_attribution_rejection_checkpoint_and_explicit_resume(web: WebJou
         event.event_type == "approval" and event.record_id == case["id"]
         for event in web.repo.list_decisions("P1")
     )
-    page = web.client.get(
-        f"/projects/P1/workflows/W1/artifacts/{case['id']}/{rejected['result']['artifact_version']}"
+    review = web.client.get(
+        f"/api/projects/P1/workflows/W1/artifacts/{case['id']}/versions/{rejected['result']['artifact_version']}"
     )
-    assert "ditolak oleh qa-owner" in page.text
-    assert "Approve artifact" not in page.text
+    assert review.json()["rejected_by"] == "qa-owner"
+    assert review.json()["item"]["version"] == rejected["result"]["artifact_version"]
 
 
 def test_download_confinement_integrity_and_cross_workflow_membership(

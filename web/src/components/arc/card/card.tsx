@@ -151,7 +151,7 @@ export function Card({ title, description, media, action, avatar, meta, status, 
   >
     {media ? <motion.div className={styles.media} {...shared("media", "card")}><motion.div className={styles.zoom} initial={false} animate={{ scale: hovered && !reduced ? ZOOM : 1 }} transition={hovered ? zoomIn : zoomOut}>{media}</motion.div></motion.div> : null}
     <div className={styles.content}>
-      <motion.h3 className={styles.title} {...shared("title", "card")}>{details ? <Dialog.Trigger render={<button type="button" className={styles.trigger} />}>{title}</Dialog.Trigger> : title}</motion.h3>
+      <motion.h3 className={styles.title} {...shared("title", "card")}>{details ? <Dialog.Trigger asChild><button type="button" className={styles.trigger}>{title}</button></Dialog.Trigger> : title}</motion.h3>
       {description ? <motion.p ref={descriptionRef} className={styles.description} {...shared("description", "card", "position")}>{description}</motion.p> : null}
       {children}
       {footer("card")}
@@ -166,20 +166,20 @@ export function Card({ title, description, media, action, avatar, meta, status, 
       {card}
       <AnimatePresence>
         {(open || returning) && <Dialog.Portal key="quick-look" forceMount>
-          <AnimatePresence>{open && <Dialog.Overlay key="overlay" forceMount render={<motion.div className={styles.overlay} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: reduced ? fade : { duration: duration.exit, ease: [...ease.standard] } }} transition={reduced ? fade : { duration: duration.standard, ease: [...ease.enter] }} />}></Dialog.Overlay>}</AnimatePresence>
-          <Dialog.Content forceMount {...(description ? {} : { "aria-describedby": undefined })} render={<motion.div className={styles.panel} data-framer-portal-id={group} data-returning={returning || undefined} layoutScroll style={{ borderRadius: geometry.panel, "--card-measure": geometry.measure ? `${geometry.measure}px` : undefined, ...(landing && returning ? { "--landing-top": `${landing.top}px`, "--landing-left": `${landing.left}px`, "--landing-width": `${landing.width}px`, "--landing-height": `${landing.height}px` } : {}) } as CSSProperties} {...(morph ? {
+          <AnimatePresence>{open && <Dialog.Overlay key="overlay" forceMount asChild><motion.div className={styles.overlay} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: reduced ? fade : { duration: duration.exit, ease: [...ease.standard] } }} transition={reduced ? fade : { duration: duration.standard, ease: [...ease.enter] }} /></Dialog.Overlay>}</AnimatePresence>
+          <Dialog.Content forceMount asChild {...(description ? {} : { "aria-describedby": undefined })}><motion.div className={styles.panel} data-framer-portal-id={group} data-returning={returning || undefined} layoutScroll style={{ borderRadius: geometry.panel, "--card-measure": geometry.measure ? `${geometry.measure}px` : undefined, ...(landing && returning ? { "--landing-top": `${landing.top}px`, "--landing-left": `${landing.left}px`, "--landing-width": `${landing.width}px`, "--landing-height": `${landing.height}px` } : {}) } as CSSProperties} {...(morph ? {
                                   ...shared("card", "panel"),
                                   initial: false,
                                   animate: geometry.card !== undefined && geometry.panel !== undefined ? { borderRadius: returning ? geometry.card : geometry.panel } : undefined,
                                   transition: { layout: returning ? settle : grow, borderRadius: returning ? settle : grow },
                                   exit: { opacity: 0, transition: { duration: 0 } },
-                                } : { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0, transition: fade }, transition: fade })} />}>{media ? <motion.div className={styles.media} {...shared("media", "panel")}><motion.div className={styles.zoom} initial={{ scale: hovered && !reduced ? ZOOM : 1 }} animate={{ scale: 1 }} transition={grow}>{media}</motion.div></motion.div> : null}<motion.span className={styles.closeSlot} initial={reduced ? { opacity: 0 } : { opacity: 0, scale: .9 }} animate={returning ? { opacity: 0, scale: .9 } : { opacity: 1, scale: 1 }} transition={returning ? fade : reduced ? fade : closeIn}><Dialog.Close render={<motion.button type="button" className={styles.close} aria-label="Close quick look" whileTap={reduced ? undefined : { scale: .94 }} transition={spring.snappy} />}><X width={16} height={16} strokeWidth={1.75} aria-hidden="true" /></Dialog.Close></motion.span><div className={styles.content}>
-                                  <Dialog.Title render={<motion.h2 className={styles.title} {...shared("title", "panel")} />}>{title}</Dialog.Title>
-                                  {description ? <Dialog.Description render={<motion.p className={styles.description} {...shared("description", "panel", "position")} />}>{description}</Dialog.Description> : null}
+                                } : { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0, transition: fade }, transition: fade })}>{media ? <motion.div className={styles.media} {...shared("media", "panel")}><motion.div className={styles.zoom} initial={{ scale: hovered && !reduced ? ZOOM : 1 }} animate={{ scale: 1 }} transition={grow}>{media}</motion.div></motion.div> : null}<motion.span className={styles.closeSlot} initial={reduced ? { opacity: 0 } : { opacity: 0, scale: .9 }} animate={returning ? { opacity: 0, scale: .9 } : { opacity: 1, scale: 1 }} transition={returning ? fade : reduced ? fade : closeIn}><Dialog.Close asChild><motion.button type="button" className={styles.close} aria-label="Close quick look" whileTap={reduced ? undefined : { scale: .94 }} transition={spring.snappy}><X width={16} height={16} strokeWidth={1.75} aria-hidden="true" /></motion.button></Dialog.Close></motion.span><div className={styles.content}>
+                                  <Dialog.Title asChild><motion.h2 className={styles.title} {...shared("title", "panel")}>{title}</motion.h2></Dialog.Title>
+                                  {description ? <Dialog.Description asChild><motion.p className={styles.description} {...shared("description", "panel", "position")}>{description}</motion.p></Dialog.Description> : null}
                                   {children}
                                   {footer("panel")}
                                   <motion.div className={styles.details} initial={reduced ? false : { opacity: 0, y: 6 }} animate={returning ? { opacity: 0, y: 0 } : { opacity: 1, y: 0 }} exit={{ opacity: 0, transition: fade }} transition={returning || reduced ? fade : reveal}>{details}</motion.div>
-                                </div></Dialog.Content>
+                                </div></motion.div></Dialog.Content>
         </Dialog.Portal>}
       </AnimatePresence>
     </LayoutGroup>

@@ -2,17 +2,17 @@
 
 import difflib
 import hashlib
+import html
 import json
 import os
 import secrets
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy.exc import NoResultFound
 from starlette.datastructures import UploadFile
@@ -65,15 +65,16 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
             *([str(origin.hostname)] if origin else []),
         ],
     )
-    templates = Jinja2Templates(directory=BASE / "templates")
-    app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+    frontend = BASE.parents[2] / "web" / "dist"
+    if (frontend / "static").is_dir():
+        app.mount("/static", StaticFiles(directory=frontend / "static"), name="static")
 
     @app.middleware("http")
     async def security(request: Request, call_next: Any) -> Response:
         session = control.session(request.cookies.get("qa_session"))
         request.state.session = session
         path = request.url.path
-        public = path == "/login" or path.startswith("/static/")
+        public = path in {"/login", "/api/session"} or path.startswith("/static/")
         if not public and not (session and session["actor"]):
             if path.startswith("/api/"):
                 return JSONResponse({"detail": "Authentication required"}, status_code=401)
@@ -102,23 +103,11 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
+        # Arc motion updates style attributes; stylesheet elements and scripts remain self-only.
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+            "default-src 'self'; script-src 'self'; style-src-elem 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         )
         return response
-
-    def page(request: Request, template: str, **values: Any) -> Response:
-        return templates.TemplateResponse(
-            request=request,
-            name=template,
-            context={
-                "csrf": request.cookies.get("qa_csrf", ""),
-                "actor": (request.state.session or {}).get("actor"),
-                "key": secrets.token_hex(16),
-                "worker_healthy": control.healthy(),
-                **values,
-            },
-        )
 
     def cookies(response: Response, token: str, csrf: str) -> Response:
         options: dict[str, Any] = {
@@ -131,13 +120,37 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         response.set_cookie("qa_csrf", csrf, **options)
         return response
 
+    def spa() -> Response:
+        index = frontend / "index.html"
+        if not index.is_file():
+            return HTMLResponse(
+                "Frontend not built. Run `bun install --frozen-lockfile && bun run build` in web/.",
+                status_code=503,
+            )
+        return FileResponse(index)
+
+    @app.get("/api/session")
+    async def session_info(request: Request) -> Response:
+        session = request.state.session
+        csrf = request.cookies.get("qa_csrf", "")
+        if session and secrets.compare_digest(digest(csrf), session["csrf"]):
+            return JSONResponse(
+                {"actor": session["actor"], "csrf": csrf, "worker_healthy": control.healthy()}
+            )
+        if request.cookies.get("qa_session"):
+            control.logout(request.cookies["qa_session"])
+        token, csrf = control.new_session()
+        return cookies(
+            JSONResponse({"actor": None, "csrf": csrf, "worker_healthy": control.healthy()}),
+            token,
+            csrf,
+        )
+
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, error: HTTPException) -> Response:
         if request.url.path.startswith("/api/"):
             return JSONResponse({"detail": error.detail}, status_code=error.status_code)
-        response = page(request, "error.html", error=error.detail)
-        response.status_code = error.status_code
-        return response
+        return HTMLResponse(html.escape(str(error.detail)), status_code=error.status_code)
 
     @app.exception_handler(Conflict)
     async def conflict_error(request: Request, error: Conflict) -> Response:
@@ -172,87 +185,104 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request) -> Response:
         if request.state.session and request.state.session["actor"]:
-            return RedirectResponse("/projects", status_code=303)
+            return RedirectResponse("/workspace", status_code=303)
         csrf = request.cookies.get("qa_csrf", "")
         if request.state.session and secrets.compare_digest(
             digest(csrf), request.state.session["csrf"]
         ):
-            # Reopening login (including an unauthenticated favicon redirect) must not
-            # invalidate a form already open in this browser.
-            return templates.TemplateResponse(
-                request=request, name="login.html", context={"csrf": csrf}
-            )
+            return spa()
         if request.cookies.get("qa_session"):
             control.logout(request.cookies["qa_session"])
         token, csrf = control.new_session()
-        response = templates.TemplateResponse(
-            request=request, name="login.html", context={"csrf": csrf}
-        )
-        return cookies(response, token, csrf)
+        return cookies(spa(), token, csrf)
 
     @app.post("/login")
     async def login(request: Request) -> Response:
-        form = await request.form()
-        owner, password = str(form.get("owner", "")), str(form.get("password", ""))
+        is_json = "application/json" in request.headers.get("content-type", "")
+        values = await request.json() if is_json else await request.form()
+        owner, password = str(values.get("owner", "")), str(values.get("password", ""))
         client = request.client.host if request.client else "local"
         if not control.login(client, owner, password):
-            return templates.TemplateResponse(
-                request=request,
-                name="login.html",
-                context={
-                    "csrf": request.cookies.get("qa_csrf"),
-                    "error": "Login failed or temporarily rate-limited.",
-                },
-                status_code=401,
-            )
+            if is_json:
+                return JSONResponse(
+                    {"detail": "Login failed or temporarily rate-limited."}, status_code=401
+                )
+            return HTMLResponse("Login failed or temporarily rate-limited.", status_code=401)
         control.logout(request.cookies["qa_session"])
         token, csrf = control.new_session(owner)
-        return cookies(RedirectResponse("/projects", status_code=303), token, csrf)
+        response = (
+            JSONResponse({"actor": owner, "csrf": csrf, "worker_healthy": control.healthy()})
+            if is_json
+            else RedirectResponse("/workspace", status_code=303)
+        )
+        return cookies(response, token, csrf)
 
     @app.post("/logout")
     async def logout(request: Request) -> Response:
         control.logout(request.cookies["qa_session"])
-        response = RedirectResponse("/login", status_code=303)
+        response = (
+            JSONResponse({"ok": True})
+            if "application/json" in request.headers.get("content-type", "")
+            else RedirectResponse("/login", status_code=303)
+        )
         response.delete_cookie("qa_session")
         response.delete_cookie("qa_csrf")
         return response
 
     @app.get("/")
     async def index() -> Response:
-        return RedirectResponse("/projects", status_code=303)
+        return RedirectResponse("/workspace", status_code=303)
 
     @app.get("/projects", response_class=HTMLResponse)
     async def projects(request: Request) -> Response:
+        return RedirectResponse("/workspace", status_code=303)
+
+    @app.get("/api/projects")
+    async def project_list() -> Any:
         with reader(database) as repo:
             items = [
-                {"project": item, "workflows": repo.list_workflows(item.id)}
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "workflows": [
+                        {"id": workflow.id, "goal": workflow.goal, "status": workflow.status}
+                        for workflow in repo.list_workflows(item.id)
+                    ],
+                }
                 for item in repo.list_projects()
             ]
-        return page(request, "projects.html", projects=items, settings_id=control.settings_id())
+        return {
+            "projects": items,
+            "settings_id": control.settings_id(),
+            "worker_healthy": control.healthy(),
+        }
 
     @app.get("/projects/{project}/workflows/{workflow}", response_class=HTMLResponse)
     async def workspace(request: Request, project: str, workflow: str) -> Response:
-        with reader(database) as repo:
-            view = workflow_view(repo, project, workflow)
-            events = repo.list_decisions(project)
-            snapshots = [
-                json.loads(event.payload)
-                for event in events
-                if event.event_type == "workflow_config" and event.record_id == workflow
-            ]
-        return page(
-            request,
-            "workflow.html",
-            view=view,
-            project=project,
-            workflow=workflow,
-            snapshot=snapshots[-1] if snapshots else None,
+        return RedirectResponse(
+            f"/workspace/{quote(project, safe='')}/{quote(workflow, safe='')}", status_code=303
         )
 
     @app.get("/api/projects/{project}/workflows/{workflow}")
     async def inspect_workflow(project: str, workflow: str) -> Any:
         with reader(database) as repo:
-            return workflow_view(repo, project, workflow)
+            view = workflow_view(repo, project, workflow)
+            snapshots = [
+                json.loads(event.payload)
+                for event in repo.list_decisions(project)
+                if event.event_type == "workflow_config" and event.record_id == workflow
+            ]
+        snapshot = snapshots[-1] if snapshots else None
+        return {
+            **view,
+            "snapshot": {
+                "agent_models": snapshot["agent_models"],
+                "max_concurrency": snapshot["max_concurrency"],
+                "test_case_style": snapshot["test_case_style"],
+            }
+            if snapshot
+            else None,
+        }
 
     async def accept(request: Request, values: dict[str, Any], key: str) -> Response:
         if not key or len(key) > 200:
@@ -287,9 +317,9 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
 
     def accepted(request: Request, job: dict[str, Any]) -> Response:
         location = f"/jobs/{job['id']}"
-        if request.headers.get("hx-request"):
-            return HTMLResponse("", status_code=202, headers={"HX-Redirect": location})
-        if "application/json" not in request.headers.get("content-type", ""):
+        if "application/json" not in request.headers.get(
+            "content-type", ""
+        ) and "application/json" not in request.headers.get("accept", ""):
             return RedirectResponse(location, status_code=303)
         return JSONResponse(
             {"job_id": job["id"], "status": job["status"], "status_url": f"/api/jobs/{job['id']}"},
@@ -375,11 +405,14 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
                 repo.read_project_record(command["project_id"], command["project_id"])
                 if command.get("workflow_id") and command["kind"] != "create_workflow":
                     repo.read_workflow(command["project_id"], command["workflow_id"])
+        result = json.loads(job["result"]) if job["result"] else None
+        if command["kind"] == "create_project" and isinstance(result, dict):
+            result.pop("root", None)
         return {
             "id": job["id"],
             "status": job["status"],
             "error": job["error"],
-            "result": json.loads(job["result"]) if job["result"] else None,
+            "result": result,
             "command": command,
             "created": job["created"],
             "started": job["started"],
@@ -394,20 +427,19 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
             "worker_healthy": control.healthy(),
         }
 
-    @app.get("/jobs", response_class=HTMLResponse)
-    async def jobs(request: Request) -> Response:
-        return page(
-            request,
-            "jobs.html",
-            jobs=[
+    @app.get("/api/jobs")
+    async def job_list(request: Request) -> Any:
+        return {
+            "jobs": [
                 job_context(job["id"], request.state.session["actor"])
                 for job in control.jobs()
                 if job["actor"] == request.state.session["actor"]
             ],
-        )
+            "worker_healthy": control.healthy(),
+        }
 
-    @app.get("/jobs/{identity}", response_class=HTMLResponse)
-    async def job_page(request: Request, identity: str) -> Response:
+    @app.get("/api/jobs/{identity}/review")
+    async def job_review(request: Request, identity: str) -> Any:
         job = job_context(identity, request.state.session["actor"])
         current_hash = ""
         if job["command"].get("workflow_id") and job["command"]["kind"] != "create_workflow":
@@ -426,14 +458,31 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
                     tofile="proposed",
                 )
             )
-        template = "job_status.html" if request.headers.get("hx-request") else "job.html"
-        return page(request, template, job=job, diff=diff, current_hash=current_hash)
+        return {
+            **job,
+            "current_hash": current_hash,
+            "diff": diff,
+            "worker_healthy": control.healthy(),
+        }
+
+    @app.get("/jobs", response_class=HTMLResponse)
+    async def jobs(request: Request) -> Response:
+        return RedirectResponse("/activity", status_code=303)
+
+    @app.get("/jobs/{identity}", response_class=HTMLResponse)
+    async def job_page(request: Request, identity: str) -> Response:
+        job_context(identity, request.state.session["actor"])
+        return RedirectResponse(f"/activity/{quote(identity, safe='')}", status_code=303)
 
     @app.post("/api/jobs/{identity}/retry")
     async def retry(request: Request, identity: str) -> Response:
         job = job_context(identity, request.state.session["actor"])
-        form = await request.form()
-        if form.get("confirm_cost") != "true":
+        values = (
+            await request.json()
+            if "application/json" in request.headers.get("content-type", "")
+            else await request.form()
+        )
+        if values.get("confirm_cost") not in (True, "true"):
             raise HTTPException(422, "Confirm retry; the provider may bill repeated calls")
         control.retry(identity)
         return accepted(request, control.job(job["id"]))
@@ -446,29 +495,10 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         request: Request, project: str, workflow: str, artifact: str, number: int
     ) -> Response:
         with reader(database) as repo:
-            item = version(repo, project, workflow, artifact, number)
-            content = artifact_content(repo, project, item)
-            view = workflow_view(repo, project, workflow)
-        with control.connect() as db:
-            rejected = db.execute(
-                """SELECT actor FROM jobs WHERE status='SUCCEEDED'
-                AND json_extract(payload, '$.kind')='decide'
-                AND json_extract(payload, '$.project_id')=?
-                AND json_extract(payload, '$.workflow_id')=?
-                AND json_extract(payload, '$.target_id')=?
-                AND json_extract(result, '$.artifact_version')=?
-                AND json_extract(result, '$.status')='REJECTED' LIMIT 1""",
-                (project, workflow, artifact, number),
-            ).fetchone()
-        return page(
-            request,
-            "artifact.html",
-            item=item,
-            content=content,
-            view=view,
-            project=project,
-            workflow=workflow,
-            rejected_by=rejected["actor"] if rejected else None,
+            version(repo, project, workflow, artifact, number)
+        return RedirectResponse(
+            f"/workspace/{quote(project, safe='')}/{quote(workflow, safe='')}/artifacts/{quote(artifact, safe='')}/{number}",
+            status_code=303,
         )
 
     @app.get(
@@ -491,30 +521,52 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
             },
         )
 
+    @app.get("/api/projects/{project}/workflows/{workflow}/artifacts/{artifact}/versions/{number}")
+    async def inspect_artifact(project: str, workflow: str, artifact: str, number: int) -> Any:
+        with reader(database) as repo:
+            item = version(repo, project, workflow, artifact, number)
+            content = artifact_content(repo, project, item)
+            view = workflow_view(repo, project, workflow)
+        with control.connect() as db:
+            rejected = db.execute(
+                """SELECT actor FROM jobs WHERE status='SUCCEEDED'
+                AND json_extract(payload, '$.kind')='decide'
+                AND json_extract(payload, '$.project_id')=?
+                AND json_extract(payload, '$.workflow_id')=?
+                AND json_extract(payload, '$.target_id')=?
+                AND json_extract(result, '$.artifact_version')=?
+                AND json_extract(result, '$.status')='REJECTED' LIMIT 1""",
+                (project, workflow, artifact, number),
+            ).fetchone()
+        return {
+            "item": item.model_dump(mode="json"),
+            "content": content,
+            "view": view,
+            "rejected_by": rejected["actor"] if rejected else None,
+        }
+
     @app.get(
         "/projects/{project}/workflows/{workflow}/sources/{identity}", response_class=HTMLResponse
     )
     async def source_page(request: Request, project: str, workflow: str, identity: str) -> Response:
         with reader(database) as repo:
-            text = source_content(repo, project, workflow, identity)
-        return page(
-            request,
-            "source.html",
-            source=text,
-            identity=identity,
-            project=project,
-            workflow=workflow,
+            source_content(repo, project, workflow, identity)
+        return RedirectResponse(
+            f"/workspace/{quote(project, safe='')}/{quote(workflow, safe='')}/sources/{quote(identity, safe='')}",
+            status_code=303,
         )
 
     @app.get("/settings", response_class=HTMLResponse)
     async def settings_page(request: Request) -> Response:
+        return spa()
+
+    @app.get("/api/settings")
+    async def inspect_settings() -> Any:
         config = control.config()
-        return page(
-            request,
-            "settings.html",
-            settings=config,
-            settings_id=control.settings_id(),
-            credentials={
+        return {
+            "settings": config.model_dump(mode="json", exclude={"database_path", "workspace_root"}),
+            "settings_id": control.settings_id(),
+            "credentials": {
                 provider: bool(os.getenv(key))
                 for provider, key in {
                     "openai": "OPENAI_API_KEY",
@@ -522,7 +574,7 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
                     "google": "GOOGLE_API_KEY",
                 }.items()
             },
-        )
+        }
 
     @app.post("/api/settings")
     async def settings_save(request: Request) -> Response:
@@ -555,12 +607,37 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
 
     @app.get("/reports", response_class=HTMLResponse)
     async def reports(request: Request) -> Response:
+        return spa()
+
+    @app.get("/api/reports")
+    async def inspect_reports() -> Any:
         with control.connect() as db:
             entries = [dict(row) for row in db.execute("SELECT * FROM reports ORDER BY id")]
         with reader(database) as repo:
             for entry in entries:
                 repo.read_project_record(entry["project_id"], entry["project_id"])
-                entry["report"] = json.loads(entry["payload"])
-        return page(request, "reports.html", reports=entries)
+        return {
+            "reports": [
+                {
+                    "id": entry["id"],
+                    "project_id": entry["project_id"],
+                    "report": json.loads(entry["payload"]),
+                }
+                for entry in entries
+            ]
+        }
+
+    @app.get("/api/projects/{project}/workflows/{workflow}/sources/{identity}")
+    async def inspect_source(project: str, workflow: str, identity: str) -> Any:
+        with reader(database) as repo:
+            text = source_content(repo, project, workflow, identity)
+        return {"id": identity, "content": text}
+
+    @app.get("/workspace")
+    @app.get("/workspace/{rest:path}")
+    @app.get("/activity")
+    @app.get("/activity/{rest:path}")
+    async def react_page() -> Response:
+        return spa()
 
     return app

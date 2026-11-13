@@ -1,39 +1,24 @@
-import { ArrowUpRight, Bug, CheckCheck, FolderKanban, ListChecks, ShieldCheck } from 'lucide-react'
+import {
+  ArrowUpRight,
+  CheckCheck,
+  FileText,
+  FolderKanban,
+  ListChecks,
+  ShieldCheck,
+} from "lucide-react";
+import "./auth-branding.css";
 
 const MATRIX_CELLS = Array.from({ length: 35 }, (_, index) => ({
   index,
   delay: (index % 7) * 0.22 + Math.floor(index / 7) * 0.1,
   active: [2, 3, 4, 8, 12, 14, 18, 20, 21, 25, 27, 30, 31, 32].includes(index),
-}))
+}));
 
 const CAPABILITIES = [
-  { label: 'Project workspaces', icon: FolderKanban },
-  { label: 'Test planning', icon: ListChecks },
-  { label: 'Defect tracking', icon: Bug },
-] as const
-
-const BRANDING_STYLES = `
-  @keyframes qa-matrix-cell {
-    0%, 45%, 100% { opacity: .08; }
-    12%, 25% { opacity: .85; }
-  }
-  @keyframes qa-matrix-scan {
-    0% { left: -20%; opacity: 0; }
-    8%, 88% { opacity: 1; }
-    100% { left: 105%; opacity: 0; }
-  }
-  @keyframes qa-seal {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 22%, transparent); }
-    50% { box-shadow: 0 0 0 12px color-mix(in oklch, var(--primary) 0%, transparent); }
-  }
-  .qa-matrix-cell { animation: qa-matrix-cell 4.8s ease-in-out infinite; }
-  .qa-matrix-scan { animation: qa-matrix-scan 4.8s linear infinite; }
-  .qa-seal { animation: qa-seal 3.2s ease-in-out infinite; }
-  @media (prefers-reduced-motion: reduce) {
-    .qa-matrix-cell, .qa-matrix-scan, .qa-seal { animation: none; }
-    .qa-matrix-scan { display: none; }
-  }
-`
+  { label: "Project workspaces", icon: FolderKanban },
+  { label: "Source evidence", icon: FileText },
+  { label: "Test planning", icon: ListChecks },
+] as const;
 
 function QualityMatrix() {
   return (
@@ -56,14 +41,20 @@ function QualityMatrix() {
       </div>
       <div className="qa-matrix-scan pointer-events-none absolute inset-y-0 w-[18%] border-r border-primary/35 bg-gradient-to-r from-transparent to-primary/10" />
     </div>
-  )
+  );
 }
 
 function QualityPreview() {
   return (
     <div className="relative mt-10 w-full max-w-xl">
-      <div className="absolute -top-3 -left-3 size-9 border-t-2 border-l-2 border-primary/35" aria-hidden="true" />
-      <div className="absolute -right-3 -bottom-3 size-9 border-r-2 border-b-2 border-primary/35" aria-hidden="true" />
+      <div
+        className="absolute -top-3 -left-3 size-9 border-t-2 border-l-2 border-primary/35"
+        aria-hidden="true"
+      />
+      <div
+        className="absolute -right-3 -bottom-3 size-9 border-r-2 border-b-2 border-primary/35"
+        aria-hidden="true"
+      />
       <div className="relative border border-primary/15 bg-white p-4 shadow-[0_24px_60px_-25px_rgba(20,65,110,.28)] sm:p-5">
         <div className="mb-5 flex items-center justify-between border-b border-primary/10 pb-4">
           <div className="flex items-center gap-2.5">
@@ -111,13 +102,12 @@ function QualityPreview() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 export function AuthBranding() {
   return (
     <section className="relative hidden min-h-screen overflow-hidden border-l border-primary/10 bg-[#eef5ff] p-8 text-slate-900 select-none lg:col-span-7 lg:flex lg:flex-col lg:justify-between lg:p-12 xl:col-span-7">
-      <style>{BRANDING_STYLES}</style>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(20,80,150,.045)_1px,transparent_1px),linear-gradient(to_bottom,rgba(20,80,150,.045)_1px,transparent_1px)] bg-[size:32px_32px] [mask-image:linear-gradient(to_bottom,transparent,black_22%,black_80%,transparent)]"
@@ -141,7 +131,8 @@ export function AuthBranding() {
           Make quality visible <span className="text-primary">at every step.</span>
         </h2>
         <p className="mt-4 max-w-lg text-sm leading-relaxed text-slate-600 xl:text-base">
-          Bring projects, test cases, execution, and defects into focus so every release moves forward with clarity.
+          Trace requirements to sources, review each QA decision, and keep test planning grounded in
+          evidence.
         </p>
         <QualityPreview />
       </div>
@@ -153,5 +144,5 @@ export function AuthBranding() {
         <p className="text-[11px] text-slate-500">One place for better quality decisions.</p>
       </footer>
     </section>
-  )
+  );
 }

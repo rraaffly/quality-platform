@@ -1,0 +1,20 @@
+@keyframes qa-matrix-cell {
+  0%, 45%, 100% { opacity: .08; }
+  12%, 25% { opacity: .85; }
+}
+@keyframes qa-matrix-scan {
+  0% { left: -20%; opacity: 0; }
+  8%, 88% { opacity: 1; }
+  100% { left: 105%; opacity: 0; }
+}
+@keyframes qa-seal {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 22%, transparent); }
+  50% { box-shadow: 0 0 0 12px color-mix(in oklch, var(--accent) 0%, transparent); }
+}
+.qa-matrix-cell { animation: qa-matrix-cell 4.8s ease-in-out infinite; }
+.qa-matrix-scan { animation: qa-matrix-scan 4.8s linear infinite; }
+.qa-seal { animation: qa-seal 3.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .qa-matrix-cell, .qa-matrix-scan, .qa-seal { animation: none; }
+  .qa-matrix-scan { display: none; }
+}

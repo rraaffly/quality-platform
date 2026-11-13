@@ -12,8 +12,17 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteRouteImport } from './routes/_app/route'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
+import { Route as AppActivityRouteRouteImport } from './routes/_app/activity/route'
+import { Route as AppReportsRouteImport } from './routes/_app/reports'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
+import { Route as AppActivityIndexRouteImport } from './routes/_app/activity/index'
+import { Route as AppActivityJobRouteImport } from './routes/_app/activity/$job'
 import { Route as AppWorkspaceIndexRouteImport } from './routes/_app/workspace/index'
+import { Route as AppWorkspaceProjectWorkflowRouteRouteImport } from './routes/_app/workspace/$project/$workflow/route'
+import { Route as AppWorkspaceProjectWorkflowIndexRouteImport } from './routes/_app/workspace/$project/$workflow/index'
+import { Route as AppWorkspaceProjectWorkflowSourcesSourceRouteImport } from './routes/_app/workspace/$project/$workflow/sources/$source'
+import { Route as AppWorkspaceProjectWorkflowArtifactsArtifactVersionRouteImport } from './routes/_app/workspace/$project/$workflow/artifacts/$artifact/$version'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,42 +37,152 @@ const AuthRouteRoute = AuthRouteRouteImport.update({
   id: '/_auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppActivityRouteRoute = AppActivityRouteRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => AuthRouteRoute,
+} as any)
+const AppActivityIndexRoute = AppActivityIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppActivityRouteRoute,
+} as any)
+const AppActivityJobRoute = AppActivityJobRouteImport.update({
+  id: '/$job',
+  path: '/$job',
+  getParentRoute: () => AppActivityRouteRoute,
 } as any)
 const AppWorkspaceIndexRoute = AppWorkspaceIndexRouteImport.update({
   id: '/workspace/',
   path: '/workspace/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppWorkspaceProjectWorkflowRouteRoute =
+  AppWorkspaceProjectWorkflowRouteRouteImport.update({
+    id: '/workspace/$project/$workflow',
+    path: '/workspace/$project/$workflow',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
+const AppWorkspaceProjectWorkflowIndexRoute =
+  AppWorkspaceProjectWorkflowIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AppWorkspaceProjectWorkflowRouteRoute,
+  } as any)
+const AppWorkspaceProjectWorkflowSourcesSourceRoute =
+  AppWorkspaceProjectWorkflowSourcesSourceRouteImport.update({
+    id: '/sources/$source',
+    path: '/sources/$source',
+    getParentRoute: () => AppWorkspaceProjectWorkflowRouteRoute,
+  } as any)
+const AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute =
+  AppWorkspaceProjectWorkflowArtifactsArtifactVersionRouteImport.update({
+    id: '/artifacts/$artifact/$version',
+    path: '/artifacts/$artifact/$version',
+    getParentRoute: () => AppWorkspaceProjectWorkflowRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/activity': typeof AppActivityRouteRouteWithChildren
+  '/reports': typeof AppReportsRoute
+  '/settings': typeof AppSettingsRoute
   '/login': typeof AuthLoginRoute
+  '/activity/$job': typeof AppActivityJobRoute
+  '/activity/': typeof AppActivityIndexRoute
   '/workspace/': typeof AppWorkspaceIndexRoute
+  '/workspace/$project/$workflow': typeof AppWorkspaceProjectWorkflowRouteRouteWithChildren
+  '/workspace/$project/$workflow/': typeof AppWorkspaceProjectWorkflowIndexRoute
+  '/workspace/$project/$workflow/sources/$source': typeof AppWorkspaceProjectWorkflowSourcesSourceRoute
+  '/workspace/$project/$workflow/artifacts/$artifact/$version': typeof AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/reports': typeof AppReportsRoute
+  '/settings': typeof AppSettingsRoute
   '/login': typeof AuthLoginRoute
+  '/activity/$job': typeof AppActivityJobRoute
+  '/activity': typeof AppActivityIndexRoute
   '/workspace': typeof AppWorkspaceIndexRoute
+  '/workspace/$project/$workflow': typeof AppWorkspaceProjectWorkflowIndexRoute
+  '/workspace/$project/$workflow/sources/$source': typeof AppWorkspaceProjectWorkflowSourcesSourceRoute
+  '/workspace/$project/$workflow/artifacts/$artifact/$version': typeof AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteRouteWithChildren
   '/_auth': typeof AuthRouteRouteWithChildren
+  '/_app/activity': typeof AppActivityRouteRouteWithChildren
+  '/_app/reports': typeof AppReportsRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_auth/login': typeof AuthLoginRoute
+  '/_app/activity/$job': typeof AppActivityJobRoute
+  '/_app/activity/': typeof AppActivityIndexRoute
   '/_app/workspace/': typeof AppWorkspaceIndexRoute
+  '/_app/workspace/$project/$workflow': typeof AppWorkspaceProjectWorkflowRouteRouteWithChildren
+  '/_app/workspace/$project/$workflow/': typeof AppWorkspaceProjectWorkflowIndexRoute
+  '/_app/workspace/$project/$workflow/sources/$source': typeof AppWorkspaceProjectWorkflowSourcesSourceRoute
+  '/_app/workspace/$project/$workflow/artifacts/$artifact/$version': typeof AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/workspace/'
+  fullPaths:
+    | '/'
+    | '/activity'
+    | '/reports'
+    | '/settings'
+    | '/login'
+    | '/activity/$job'
+    | '/activity/'
+    | '/workspace/'
+    | '/workspace/$project/$workflow'
+    | '/workspace/$project/$workflow/'
+    | '/workspace/$project/$workflow/sources/$source'
+    | '/workspace/$project/$workflow/artifacts/$artifact/$version'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/workspace'
+  to:
+    | '/'
+    | '/reports'
+    | '/settings'
+    | '/login'
+    | '/activity/$job'
+    | '/activity'
+    | '/workspace'
+    | '/workspace/$project/$workflow'
+    | '/workspace/$project/$workflow/sources/$source'
+    | '/workspace/$project/$workflow/artifacts/$artifact/$version'
   id:
-    '__root__' | '/' | '/_app' | '/_auth' | '/_auth/login' | '/_app/workspace/'
+    | '__root__'
+    | '/'
+    | '/_app'
+    | '/_auth'
+    | '/_app/activity'
+    | '/_app/reports'
+    | '/_app/settings'
+    | '/_auth/login'
+    | '/_app/activity/$job'
+    | '/_app/activity/'
+    | '/_app/workspace/'
+    | '/_app/workspace/$project/$workflow'
+    | '/_app/workspace/$project/$workflow/'
+    | '/_app/workspace/$project/$workflow/sources/$source'
+    | '/_app/workspace/$project/$workflow/artifacts/$artifact/$version'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -95,12 +214,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/activity': {
+      id: '/_app/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof AppActivityRouteRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/reports': {
+      id: '/_app/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/_auth/login': {
       id: '/_auth/login'
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof AuthRouteRoute
+    }
+    '/_app/activity/': {
+      id: '/_app/activity/'
+      path: '/'
+      fullPath: '/activity/'
+      preLoaderRoute: typeof AppActivityIndexRouteImport
+      parentRoute: typeof AppActivityRouteRoute
+    }
+    '/_app/activity/$job': {
+      id: '/_app/activity/$job'
+      path: '/$job'
+      fullPath: '/activity/$job'
+      preLoaderRoute: typeof AppActivityJobRouteImport
+      parentRoute: typeof AppActivityRouteRoute
     }
     '/_app/workspace/': {
       id: '/_app/workspace/'
@@ -109,15 +263,86 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkspaceIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/_app/workspace/$project/$workflow': {
+      id: '/_app/workspace/$project/$workflow'
+      path: '/workspace/$project/$workflow'
+      fullPath: '/workspace/$project/$workflow'
+      preLoaderRoute: typeof AppWorkspaceProjectWorkflowRouteRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/workspace/$project/$workflow/': {
+      id: '/_app/workspace/$project/$workflow/'
+      path: '/'
+      fullPath: '/workspace/$project/$workflow/'
+      preLoaderRoute: typeof AppWorkspaceProjectWorkflowIndexRouteImport
+      parentRoute: typeof AppWorkspaceProjectWorkflowRouteRoute
+    }
+    '/_app/workspace/$project/$workflow/sources/$source': {
+      id: '/_app/workspace/$project/$workflow/sources/$source'
+      path: '/sources/$source'
+      fullPath: '/workspace/$project/$workflow/sources/$source'
+      preLoaderRoute: typeof AppWorkspaceProjectWorkflowSourcesSourceRouteImport
+      parentRoute: typeof AppWorkspaceProjectWorkflowRouteRoute
+    }
+    '/_app/workspace/$project/$workflow/artifacts/$artifact/$version': {
+      id: '/_app/workspace/$project/$workflow/artifacts/$artifact/$version'
+      path: '/artifacts/$artifact/$version'
+      fullPath: '/workspace/$project/$workflow/artifacts/$artifact/$version'
+      preLoaderRoute: typeof AppWorkspaceProjectWorkflowArtifactsArtifactVersionRouteImport
+      parentRoute: typeof AppWorkspaceProjectWorkflowRouteRoute
+    }
   }
 }
 
+interface AppActivityRouteRouteChildren {
+  AppActivityJobRoute: typeof AppActivityJobRoute
+  AppActivityIndexRoute: typeof AppActivityIndexRoute
+}
+
+const AppActivityRouteRouteChildren: AppActivityRouteRouteChildren = {
+  AppActivityJobRoute: AppActivityJobRoute,
+  AppActivityIndexRoute: AppActivityIndexRoute,
+}
+
+const AppActivityRouteRouteWithChildren =
+  AppActivityRouteRoute._addFileChildren(AppActivityRouteRouteChildren)
+
+interface AppWorkspaceProjectWorkflowRouteRouteChildren {
+  AppWorkspaceProjectWorkflowIndexRoute: typeof AppWorkspaceProjectWorkflowIndexRoute
+  AppWorkspaceProjectWorkflowSourcesSourceRoute: typeof AppWorkspaceProjectWorkflowSourcesSourceRoute
+  AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute: typeof AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute
+}
+
+const AppWorkspaceProjectWorkflowRouteRouteChildren: AppWorkspaceProjectWorkflowRouteRouteChildren =
+  {
+    AppWorkspaceProjectWorkflowIndexRoute:
+      AppWorkspaceProjectWorkflowIndexRoute,
+    AppWorkspaceProjectWorkflowSourcesSourceRoute:
+      AppWorkspaceProjectWorkflowSourcesSourceRoute,
+    AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute:
+      AppWorkspaceProjectWorkflowArtifactsArtifactVersionRoute,
+  }
+
+const AppWorkspaceProjectWorkflowRouteRouteWithChildren =
+  AppWorkspaceProjectWorkflowRouteRoute._addFileChildren(
+    AppWorkspaceProjectWorkflowRouteRouteChildren,
+  )
+
 interface AppRouteRouteChildren {
+  AppActivityRouteRoute: typeof AppActivityRouteRouteWithChildren
+  AppReportsRoute: typeof AppReportsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppWorkspaceIndexRoute: typeof AppWorkspaceIndexRoute
+  AppWorkspaceProjectWorkflowRouteRoute: typeof AppWorkspaceProjectWorkflowRouteRouteWithChildren
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
+  AppActivityRouteRoute: AppActivityRouteRouteWithChildren,
+  AppReportsRoute: AppReportsRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppWorkspaceIndexRoute: AppWorkspaceIndexRoute,
+  AppWorkspaceProjectWorkflowRouteRoute:
+    AppWorkspaceProjectWorkflowRouteRouteWithChildren,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(

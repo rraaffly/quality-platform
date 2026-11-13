@@ -56,6 +56,8 @@ def test_login_session_rotation_expiry_logout_csrf_origin_and_rate_limit(local: 
     client, control = local
     assert client.get("/api/jobs/not-owned").status_code == 401
     assert client.get("/projects", follow_redirects=False).status_code == 303
+    guest = client.get("/api/session").json()
+    assert guest["actor"] is None and guest["csrf"] == client.cookies["qa_csrf"]
     client.get("/login")
     old = client.cookies["qa_session"]
     csrf = client.cookies["qa_csrf"]
@@ -93,6 +95,7 @@ def test_login_session_rotation_expiry_logout_csrf_origin_and_rate_limit(local: 
         ).status_code
         == 409
     )
+    assert client.get("/api/jobs").json()["jobs"][0]["id"] == first.json()["job_id"]
     assert client.get("/projects", headers={"Host": "evil.test"}).status_code == 400
     assert client.post("/logout", headers=headers, follow_redirects=False).status_code == 303
     assert client.get("/api/jobs/anything").status_code == 401
@@ -158,8 +161,10 @@ def test_model_confirmation_secret_redaction_and_cross_project_sources(
     client, control = local
     headers = login(client)
     monkeypatch.setenv("OPENAI_API_KEY", "never-display-this-key")
-    assert "never-display-this-key" not in client.get("/settings").text
-    assert "Configured" in client.get("/settings").text
+    settings = client.get("/api/settings")
+    assert "never-display-this-key" not in settings.text
+    assert settings.json()["credentials"]["openai"] is True
+    assert "database_path" not in settings.text and "workspace_root" not in settings.text
     for command in (
         {"kind": "create_project", "project_id": "P1", "name": "Project"},
         {
@@ -188,6 +193,7 @@ def test_model_confirmation_secret_redaction_and_cross_project_sources(
     )
     response = client.post("/api/commands", json={**payload, "confirm_cost": True}, headers=headers)
     assert response.status_code == 202
+    assert str(control.config().workspace_root) not in client.get("/api/jobs").text
 
     def unavailable(spec: Any) -> Any:
         raise RuntimeError("never-display-this-key")
@@ -202,26 +208,28 @@ def test_model_confirmation_secret_redaction_and_cross_project_sources(
     assert "script-src 'self'" in response.headers["Content-Security-Policy"]
 
 
-def test_html_forms_work_without_javascript_and_do_not_render_untrusted_html(local: Any) -> None:
+def test_react_shell_and_json_project_projection_do_not_render_untrusted_html(local: Any) -> None:
     client, control = local
     login(client)
     response = client.post(
-        "/commands",
-        data={
-            "csrf": client.cookies["qa_csrf"],
-            "command_key": "form",
+        "/api/commands",
+        json={
             "kind": "create_project",
             "project_id": "P1",
             "name": '<script>alert("xss")</script>',
         },
-        follow_redirects=False,
+        headers={"X-CSRF-Token": client.cookies["qa_csrf"], "Idempotency-Key": "project"},
     )
-    assert response.status_code == 303
+    assert response.status_code == 202
     asyncio.run(run_worker(control.state, once=True))
-    page = client.get("/projects")
+    page = client.get("/workspace")
+    assert page.status_code == 200
     assert '<script>alert("xss")</script>' not in page.text
-    assert "&lt;script&gt;" in page.text
-    assert client.get("/static/htmx.min.js").status_code == 200
+    assert (
+        '<script>alert("xss")</script>' in client.get("/api/projects").json()["projects"][0]["name"]
+    )
+    assert "database_path" not in client.get("/api/projects").text
+    assert client.get("/static/htmx.min.js").status_code == 404
     assert client.get("/static/../control.sqlite").status_code in {404, 403}
 
 
@@ -296,9 +304,11 @@ def test_expired_session_and_read_only_report_registration(local: Any, tmp_path:
         ],
     )
     assert result.exit_code == 0, result.output
-    page = client.get("/reports")
-    assert "offline-example" in page.text and "REVIEW_REQUIRED" in page.text
-    assert "overall_precision" in page.text and "ILLUSTRATIVE_GATES" in page.text
+    page = client.get("/api/reports")
+    assert page.status_code == 200
+    report = page.json()["reports"][0]["report"]
+    assert report["run_id"] == "offline-example" and report["decision"] == "REVIEW_REQUIRED"
+    assert "overall_precision" in report and "ILLUSTRATIVE_GATES" in report["readiness_labels"]
     assert client.post("/reports", headers=headers).status_code == 405
     with control.connect() as db:
         db.execute("UPDATE sessions SET expires=0")

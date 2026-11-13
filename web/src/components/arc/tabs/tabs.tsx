@@ -132,6 +132,6 @@ export function TabsContent({ className, value, forceMount, children, ...props }
   }, [selected, reduced, forceMount, panelHeightRef, leavingRectRef]);
   if (forceMount) return <TabsPrimitive.Content {...props} value={value} forceMount className={classes}>{children}</TabsPrimitive.Content>;
   return <AnimatePresence initial={false} mode="popLayout" custom={direction}>
-    {selected && <TabsPrimitive.Content {...props} key={value} value={value} forceMount render={<motion.div ref={panel} className={classes} custom={direction} variants={reduced ? panelFade : panelMotion} initial="enter" animate="center" exit="exit" />}>{children}</TabsPrimitive.Content>}
+    {selected && <TabsPrimitive.Content {...props} key={value} value={value} forceMount asChild><motion.div ref={panel} className={classes} custom={direction} variants={reduced ? panelFade : panelMotion} initial="enter" animate="center" exit="exit">{children}</motion.div></TabsPrimitive.Content>}
   </AnimatePresence>;
 }

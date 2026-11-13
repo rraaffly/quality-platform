@@ -156,11 +156,11 @@ export function DrawerContent({
     <AnimatePresence custom={drawer.flung}>
       {drawer.open && (
         <DialogPrimitive.Portal key="drawer" forceMount container={container}>
-          <DialogPrimitive.Overlay forceMount render={<motion.div className={styles.overlay} data-contained={container ? "" : undefined} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: reduced ? fade : { duration: motionTokens.duration.fast, ease: [...motionTokens.ease.standard] } }} transition={reduced ? fade : { duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] }} />}></DialogPrimitive.Overlay>
-          <DialogPrimitive.Content {...props} forceMount onInteractOutside={event => {
+          <DialogPrimitive.Overlay forceMount asChild><motion.div className={styles.overlay} data-contained={container ? "" : undefined} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: reduced ? fade : { duration: motionTokens.duration.fast, ease: [...motionTokens.ease.standard] } }} transition={reduced ? fade : { duration: motionTokens.duration.standard, ease: [...motionTokens.ease.enter] }} /></DialogPrimitive.Overlay>
+          <DialogPrimitive.Content {...props} forceMount asChild onInteractOutside={event => {
                                 onInteractOutside?.(event);
                                 if (event.detail.originalEvent.timeStamp < drawer.openedAt.current) event.preventDefault();
-                              }} render={<motion.div ref={panelRef} className={classes} data-side={side} data-contained={container ? "" : undefined} style={{ [axis]: offset }} variants={{ exit: (flung: boolean) => reduced ? { opacity: 0, transition: fade } : { ...offscreen, opacity: [1, 1, 0], transition: flung ? flingOut : leave } }} initial={reduced ? { opacity: 0 } : { ...offscreen, opacity: 1 }} animate={reduced ? { opacity: 1 } : { [axis]: 0, opacity: 1 }} exit="exit" transition={reduced ? fade : motionTokens.spring.smooth} />}>{inner}</DialogPrimitive.Content>
+                              }}><motion.div ref={panelRef} className={classes} data-side={side} data-contained={container ? "" : undefined} style={{ [axis]: offset }} variants={{ exit: (flung: boolean) => reduced ? { opacity: 0, transition: fade } : { ...offscreen, opacity: [1, 1, 0], transition: flung ? flingOut : leave } }} initial={reduced ? { opacity: 0 } : { ...offscreen, opacity: 1 }} animate={reduced ? { opacity: 1 } : { [axis]: 0, opacity: 1 }} exit="exit" transition={reduced ? fade : motionTokens.spring.smooth}>{inner}</motion.div></DialogPrimitive.Content>
         </DialogPrimitive.Portal>
       )}
     </AnimatePresence>

@@ -8,7 +8,20 @@ historis; perubahan batas produknya dicatat di [addendum web](superpowers/specs/
 ## Persiapan dan menjalankan layanan
 
 Web ditujukan untuk satu pemilik, satu mesin, SQLite lokal, dan satu worker pemilik hak tulis.
-Jalankan `uv sync --dev`, lalu sesuaikan [template config.yaml](../config.yaml): ganti seluruh
+Jalankan `uv sync --dev`, lalu build frontend React sebelum menjalankan server:
+
+```bash
+cd web
+bun install --frozen-lockfile
+bun run build
+cd ..
+```
+
+`qa-web serve` menyajikan `web/dist` dan API di origin yang sama. Build di setiap checkout;
+`web/dist` tidak disimpan di Git atau dibundel dalam paket Python. Jika build hilang,
+halaman UI mengembalikan HTTP 503 berisi petunjuk build. Jangan letakkan React dan API di origin
+yang berbeda: sesi dan CSRF sengaja menggunakan cookie HttpOnly tanpa CORS. Setelah itu sesuaikan
+[template config.yaml](../config.yaml): ganti seluruh
 placeholder `model_id` dan pilih provider yang memiliki credential Anda. Lihat juga
 [panduan CLI](cli.md#projects-and-workflows).
 Pilih provider/model secara eksplisit; tidak ada model default atau fallback otomatis. Gunakan
@@ -120,12 +133,17 @@ checkpoint, snapshot dan export artifact. Tetap uji prosedur backup sendiri sebe
 
 ## API perintah dan laporan
 
-UI memakai `POST /commands` untuk form; klien JSON memakai `POST /api/commands` dengan field
+UI React memakai `POST /api/commands` dengan field
 `kind` (`create_project`, `create_workflow`, `run`, `resume`, `answer`, `scope`, `baseline`,
 `submit`, `decide`, `revision`, `apply`, atau `scope_proposal`). Endpoint ini menggantikan
 usulan route per aksi pada rancangan awal tanpa menggandakan implementasi domain. Upload tetap
 melalui `POST /api/projects/{project}/workflows/{workflow}/sources`. Klien wajib memakai sesi
-owner, CSRF token, dan `Idempotency-Key`; browser mendapat token dan command key melalui form.
+owner, CSRF token, dan `Idempotency-Key`; browser memperoleh CSRF melalui `GET /api/session`
+dan menyimpannya dalam memori, tidak membaca cookie. Login dan logout JSON memakai endpoint
+`/login` dan `/logout`, dan sesi baru diputar setelah login. Pembacaan proyek, workflow, job,
+source, artifact, settings dan report tersedia di `/api/*`; versi lama `/projects` dan `/jobs`
+diarahkan ke route React. Upload multipart dengan `Accept: application/json` mengembalikan job
+JSON, begitu juga retry JSON dengan konfirmasi biaya eksplisit.
 Penyimpanan settings juga memakai key idempoten. Header/key sama dengan payload berbeda ditolak.
 
 Command JSON diterima sebagai `202` beserta `job_id` dan `status_url`. Baca status di
