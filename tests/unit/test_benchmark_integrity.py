@@ -54,7 +54,12 @@ def test_benchmark_snapshot_rejects_symlink_escape(tmp_path: Path) -> None:
     synthetic.mkdir(parents=True)
     secret = tmp_path / "secret.md"
     secret.write_text("private", encoding="utf-8")
-    (synthetic / "escaped.md").symlink_to(secret)
+    try:
+        (synthetic / "escaped.md").symlink_to(secret)
+    except OSError as error:
+        if getattr(error, "winerror", None) != 1314:
+            raise
+        pytest.skip("symlink creation requires Windows Developer Mode or privilege")
     case = benchmark_case("escaped", hashlib.sha256(secret.read_bytes()).hexdigest())
 
     with pytest.raises(LiveBenchmarkConfigurationError, match="outside benchmark root"):

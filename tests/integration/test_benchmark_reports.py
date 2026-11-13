@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -125,8 +127,13 @@ def test_report_records_reproducible_metadata_cost_and_masks_private_input(
     assert persisted.review_packet_path is not None
     packet_path = Path(persisted.review_packet_path)
     assert private_marker not in packet_path.read_text()
-    assert packet_path.stat().st_mode & 0o777 == 0o600
-    assert packet_path.parent.stat().st_mode & 0o777 == 0o700
+    if os.name == "nt":
+        for private_path in (packet_path.parent, packet_path):
+            acl = subprocess.check_output(["icacls", str(private_path)], text=True)
+            assert "(I)" not in acl
+    else:
+        assert packet_path.stat().st_mode & 0o777 == 0o600
+        assert packet_path.parent.stat().st_mode & 0o777 == 0o700
 
 
 def test_unapproved_real_world_case_is_excluded_without_invoking_handler() -> None:

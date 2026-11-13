@@ -517,8 +517,13 @@ def test_download_confinement_integrity_and_cross_workflow_membership(
     canonical.unlink()
     escaped = tmp_path / "outside.json"
     escaped.write_bytes(original)
-    canonical.symlink_to(escaped)
-    assert web.client.get(path).status_code == 403
+    try:
+        canonical.symlink_to(escaped)
+    except OSError as error:
+        if getattr(error, "winerror", None) != 1314:
+            raise
+    else:
+        assert web.client.get(path).status_code == 403
 
 
 def test_stopped_installation_backup_restores_queue_checkpoints_and_artifacts(

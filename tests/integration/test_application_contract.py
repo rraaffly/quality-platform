@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -158,7 +159,7 @@ def test_direct_mutations_lock_before_opening_database(
 
 
 def test_readers_work_during_writer_ownership_and_cannot_write(tmp_path: Path) -> None:
-    database = tmp_path / "domain ?# space.sqlite"
+    database = tmp_path / ("domain space.sqlite" if os.name == "nt" else "domain ?# space.sqlite")
     commands.create_project(database, "P1", "Project", tmp_path)
     with writer_lock(database):
         selected = CliRunner().invoke(
