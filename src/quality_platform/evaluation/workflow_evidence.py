@@ -83,7 +83,7 @@ def _results(path: Path) -> tuple[SuiteTestResult, ...]:
     return tuple(
         SuiteTestResult(
             test_id=f"{item.get('classname', '')}::{item.get('name', '')}",
-            suite=item.get("file", ""),
+            suite=item.get("file", "").replace("\\", "/"),
             outcome=(
                 "failed"
                 if item.find("failure") is not None

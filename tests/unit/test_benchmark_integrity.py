@@ -123,8 +123,8 @@ async def test_live_analyst_uses_production_schema_validation_and_semantic_adapt
     fixture_root.mkdir(parents=True)
     brd = "# Login\n\nThe account locks after 3 failed attempts.\n"
     srs = "# Login\n\nThe account locks after 5 failed attempts.\n"
-    (fixture_root / "brd.md").write_text(brd, encoding="utf-8")
-    (fixture_root / "srs.md").write_text(srs, encoding="utf-8")
+    (fixture_root / "brd.md").write_bytes(brd.encode("utf-8"))
+    (fixture_root / "srs.md").write_bytes(srs.encode("utf-8"))
     brd_ref = SourceReference(document_id="brd", start_line=3, end_line=3)
     srs_ref = SourceReference(document_id="srs", start_line=3, end_line=3)
     blocked = Requirement(

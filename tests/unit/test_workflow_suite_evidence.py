@@ -105,7 +105,7 @@ def test_actually_executed_pytest_evidence_pass_or_failure_binds_release_and_rej
     )
     evidence = capture_workflow_suite(candidate, tmp_path / "executed.junit.xml")
     expected = ReleaseDecision.BLOCKED if failure else ReleaseDecision.PASS
-    assert validate_workflow_evidence(candidate, evidence) == expected
+    assert validate_workflow_evidence(candidate, evidence) == expected, evidence.test_results
     assert len(evidence.test_results) == 1
     assert evidence.test_results[0].outcome == ("failed" if failure else "passed")
     attached = attach_workflow_evidence(candidate, evidence)
