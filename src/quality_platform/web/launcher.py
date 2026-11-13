@@ -1,6 +1,7 @@
 """User-facing operational commands for the local Web application."""
 
 import os
+import webbrowser
 from pathlib import Path
 from typing import Annotated
 
@@ -14,6 +15,9 @@ from quality_platform.evaluation.reporting import _restrict_private_path
 from quality_platform.storage.database import open_database
 from quality_platform.storage.ownership import writer_lock
 from quality_platform.web.control import Control
+from quality_platform.web.processes import start
+from quality_platform.web.processes import status as process_status
+from quality_platform.web.processes import stop as process_stop
 
 app = typer.Typer(help="Set up and open the Quality Platform local dashboard")
 
@@ -104,3 +108,47 @@ def setup(
 
 def main() -> None:
     app()
+
+
+def state_path(data_dir: Path | None, state: Path | None) -> Path:
+    if data_dir is not None and state is not None:
+        raise typer.BadParameter("Choose either --data-dir or --state")
+    return state.resolve() if state is not None else data_root(data_dir) / "state"
+
+
+@app.command()
+def dashboard(
+    data_dir: Annotated[Path | None, typer.Option(help="Private user data directory")] = None,
+    state: Annotated[Path | None, typer.Option(help="Existing state directory")] = None,
+    port: Annotated[int, typer.Option(min=1, max=65535)] = 8000,
+    no_open: Annotated[bool, typer.Option(help="Print the URL without opening a browser")] = False,
+) -> None:
+    """Start the local Web app in the background and open it in a browser."""
+    url = start(state_path(data_dir, state), port)
+    typer.echo(f"Quality Platform ready at {url}")
+    if not no_open:
+        webbrowser.open(url)
+
+
+@app.command()
+def status(
+    data_dir: Annotated[Path | None, typer.Option()] = None,
+    state: Annotated[Path | None, typer.Option()] = None,
+) -> None:
+    """Show local server and worker status."""
+    result = process_status(state_path(data_dir, state))
+    typer.echo(f"{result['state']}: {result.get('url', '')} {result.get('logs', '')}".strip())
+
+
+@app.command()
+def stop(
+    data_dir: Annotated[Path | None, typer.Option()] = None,
+    state: Annotated[Path | None, typer.Option()] = None,
+) -> None:
+    """Stop only the recorded local server and worker."""
+    stopped = process_stop(state_path(data_dir, state))
+    typer.echo("Quality Platform stopped" if stopped else "Quality Platform was not running")
+
+
+if __name__ == "__main__":
+    main()
