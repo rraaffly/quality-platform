@@ -26,3 +26,6 @@ benchmarks/ground_truth/real_world/
 # Web
 .tanstack
 node_modules/
+
+# Orb-local service portals
+.amp/portals/

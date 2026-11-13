@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+echo "[setup] Installing Python 3.12"
+time uv python install 3.12
+
+echo "[setup] Syncing locked Python dependencies"
+time uv sync --locked --dev
+
+echo "[setup] Installing and building the web app"
+(
+  cd web
+  time bun install --frozen-lockfile
+  time bun run build
+)
