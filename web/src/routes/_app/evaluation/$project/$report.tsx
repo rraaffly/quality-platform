@@ -85,6 +85,41 @@ function ReviewPage() {
     }
   }
 
+  async function submitRelease(event: FormEvent<HTMLFormElement>, stage: "prepare_release" | "review_release" | "promote_baseline") {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      const thresholds = JSON.parse(String(form.get("thresholds") ?? "{}")) as Record<string, unknown>;
+      const payload: Record<string, unknown> = {
+        ...base,
+        action: stage,
+        human_id: String(form.get("human_id") ?? ""),
+        calibration_id: String(form.get("calibration_id") ?? ""),
+        thresholds,
+      };
+      if (stage === "review_release") {
+        payload.bootstrap = form.get("bootstrap") === "on";
+        payload.approval = {
+          candidate_run_id: packet.data?.candidate_run_id,
+          status: String(form.get("status") ?? "REJECTED"),
+          reviewer: String(form.get("reviewer") ?? ""),
+          reviewed_at: new Date().toISOString(),
+          reviewed_evidence: String(form.get("reviewed_evidence") ?? "")
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean),
+        };
+      }
+      if (stage === "promote_baseline") {
+        payload.release_id = String(form.get("release_id") ?? "");
+        payload.confirm_promotion = form.get("confirm_promotion") === "on";
+      }
+      await action.send("/api/evaluation/jobs", payload);
+    } catch {
+      // The action displays server errors; malformed JSON remains editable.
+    }
+  }
+
   return (
     <div className="space-y-5">
       <Heading
@@ -195,6 +230,55 @@ function ReviewPage() {
                 </Button>
               </form>
             </div>
+          </Panel>
+          <Panel title="Release decision">
+            <p className="mb-4 text-sm text-muted-foreground">
+              Use the latest report ID after attaching workflow and productivity evidence. Copy IDs and
+              evidence hashes from each completed job. Thresholds must be calibrated before approval.
+            </p>
+            <form
+              onSubmit={(event) => {
+                const stage = String((event.nativeEvent as SubmitEvent).submitter?.getAttribute("value")) as
+                  | "prepare_release"
+                  | "review_release"
+                  | "promote_baseline";
+                void submitRelease(event, stage);
+              }}
+              className="space-y-3"
+            >
+              <Field label="Human review ID"><input className={field} name="human_id" required /></Field>
+              <Field label="Calibration ID"><input className={field} name="calibration_id" required /></Field>
+              <Field label="Calibrated quality thresholds (JSON)">
+                <textarea className={field} name="thresholds" rows={9} defaultValue={JSON.stringify({
+                  version: "v1", status: "ILLUSTRATIVE", minimum_precision: 0.95,
+                  minimum_recall: 0.95, minimum_evidence_accuracy: 0.98,
+                  maximum_precision_regression: 0.02, maximum_recall_regression: 0.02,
+                  maximum_evidence_regression: 0.02,
+                }, null, 2)} required />
+              </Field>
+              <Button type="submit" value="prepare_release" variant="secondary" loading={action.busy}>
+                Prepare exact evidence hashes
+              </Button>
+              <Field label="Evidence hashes from prepare job, one per line">
+                <textarea className={field} name="reviewed_evidence" rows={7} />
+              </Field>
+              <Field label="Release reviewer"><input className={field} name="reviewer" /></Field>
+              <Field label="Decision">
+                <select className={field} name="status" defaultValue="REJECTED">
+                  <option value="REJECTED">Rejected</option>
+                  <option value="APPROVED">Approved</option>
+                </select>
+              </Field>
+              <label className="flex gap-2 text-sm"><input type="checkbox" name="bootstrap" />First approved baseline</label>
+              <Button type="submit" value="review_release" variant="secondary" loading={action.busy}>
+                Record release review
+              </Button>
+              <Field label="Release review ID from completed job"><input className={field} name="release_id" /></Field>
+              <label className="flex gap-2 text-sm"><input type="checkbox" name="confirm_promotion" />Promote this approved release as the baseline</label>
+              <Button type="submit" value="promote_baseline" loading={action.busy}>
+                Promote approved baseline
+              </Button>
+            </form>
           </Panel>
           {action.error && (
             <Alert tone="danger" title="Action failed">

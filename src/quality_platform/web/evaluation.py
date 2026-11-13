@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal, TypeVar
 
 import yaml
+from filelock import FileLock
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from quality_platform.evaluation.calibration import Review
@@ -15,11 +16,25 @@ from quality_platform.evaluation.models import (
     BenchmarkReport,
     EvalRecord,
     ProductivityEvidence,
+    ReleaseDecision,
+)
+from quality_platform.evaluation.regression import (
+    BaselineApproval,
+    QualityThresholds,
+    decide_regression,
 )
 from quality_platform.evaluation.release import (
+    ApprovedBaseline,
+    CalibrationEvidence,
     IndependentReviews,
+    ReleaseReview,
     create_calibration,
+    load_baseline,
+    review_release,
     validate_independent_reviews,
+)
+from quality_platform.evaluation.release import (
+    digest as evidence_digest,
 )
 from quality_platform.evaluation.reporting import (
     _atomic_write,
@@ -83,7 +98,15 @@ class EvaluationActionCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["evaluation_action"]
-    action: Literal["capture_workflow", "record_productivity", "capture_review", "calibrate"]
+    action: Literal[
+        "capture_workflow",
+        "record_productivity",
+        "capture_review",
+        "calibrate",
+        "prepare_release",
+        "review_release",
+        "promote_baseline",
+    ]
     project_id: SafeID
     report_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     human_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -91,6 +114,12 @@ class EvaluationActionCommand(BaseModel):
     productivity: ProductivityEvidence | None = None
     confirm_independent: bool = False
     confirm_all_repeats_reviewed: bool = False
+    calibration_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    release_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    thresholds: QualityThresholds | None = None
+    approval: BaselineApproval | None = None
+    bootstrap: bool = False
+    confirm_promotion: bool = False
 
     @model_validator(mode="after")
     def required_evidence(self) -> "EvaluationActionCommand":
@@ -100,6 +129,22 @@ class EvaluationActionCommand(BaseModel):
             raise ValueError("Human review ID is required")
         if self.action == "record_productivity" and self.productivity is None:
             raise ValueError("Equivalent-task productivity evidence is required")
+        if self.action in {"prepare_release", "review_release"} and (
+            not self.human_id or not self.calibration_id or self.thresholds is None
+        ):
+            raise ValueError("Human review, calibration and quality thresholds are required")
+        if self.action == "review_release" and self.approval is None:
+            raise ValueError("Explicit human release decision is required")
+        if self.action == "promote_baseline" and (
+            not self.human_id
+            or not self.calibration_id
+            or not self.release_id
+            or self.thresholds is None
+            or not self.confirm_promotion
+        ):
+            raise ValueError(
+                "Exact release evidence and explicit promotion confirmation are required"
+            )
         return self
 
 
@@ -196,7 +241,7 @@ def review_packet(control: Control, project_id: str, report_id: str) -> dict:
 
 async def execute_action(
     control: Control, command: EvaluationActionCommand, job_id: str
-) -> dict[str, str | int]:
+) -> dict[str, object]:
     base = control.state / "evaluation"
     receipts = base / "jobs"
     receipts.mkdir(parents=True, exist_ok=True)
@@ -212,7 +257,7 @@ async def execute_action(
         evidence = await asyncio.to_thread(capture_workflow_suite, report, evidence_path)
         store.save("workflow-suite", evidence)
         updated = attach_workflow_evidence(report, evidence)
-        result: dict[str, str | int] = {}
+        result: dict[str, object] = {}
         result.update(register_report(control, command.project_id, updated, source="web"))
     elif command.action == "record_productivity":
         assert command.productivity is not None
@@ -243,7 +288,7 @@ async def execute_action(
         )
         validate_independent_reviews(report, human)
         result = {"human_id": store.save("human-review", human)}
-    else:
+    elif command.action == "calibrate":
         assert command.human_id is not None
         human = store.load(command.human_id, IndependentReviews)
         calibration = create_calibration(report, human)
@@ -251,6 +296,93 @@ async def execute_action(
             "calibration_id": store.save("calibration", calibration),
             "sample_size": calibration.calibration.sample_size,
         }
+    else:
+        assert command.human_id is not None
+        assert command.calibration_id is not None
+        assert command.thresholds is not None
+        human = store.load(command.human_id, IndependentReviews)
+        calibration = store.load(command.calibration_id, CalibrationEvidence)
+        thresholds = command.thresholds
+        baseline_directory = base / "baselines" / command.project_id
+        if command.action == "prepare_release":
+            baseline = load_baseline(baseline_directory)
+            regression = decide_regression(
+                report, baseline.report if baseline else report, thresholds
+            )
+            reviewed_evidence = [
+                f"report:{evidence_digest(report)}",
+                f"human-review:{evidence_digest(human)}",
+                f"calibration:{evidence_digest(calibration)}",
+                f"thresholds:{evidence_digest(thresholds)}",
+                f"regression-decision:{regression.decision.value}",
+            ]
+            if report.workflow_suite_evidence is not None:
+                reviewed_evidence.append(
+                    f"workflow-suite:{evidence_digest(report.workflow_suite_evidence)}"
+                )
+            result = {
+                "reviewed_evidence": reviewed_evidence,
+                "baseline_run_id": baseline.report.run_id if baseline else "",
+                "regression_decision": regression.decision.value,
+            }
+        elif command.action == "review_release":
+            assert command.approval is not None
+            baseline = load_baseline(baseline_directory)
+            release = review_release(
+                report,
+                baseline,
+                thresholds,
+                human,
+                calibration,
+                command.approval,
+                bootstrap=command.bootstrap,
+            )
+            result = {
+                "release_id": store.save("release-review", release),
+                "decision": release.decision.value,
+                "reasons": [*release.regression.reasons, *release.reasons],
+            }
+        else:
+            assert command.release_id is not None
+            previous = store.load(command.release_id, ReleaseReview)
+            baseline_directory.mkdir(parents=True, exist_ok=True)
+            _restrict_private_path(baseline_directory.parent, 0o700)
+            _restrict_private_path(baseline_directory, 0o700)
+            with FileLock(baseline_directory / ".promotion.lock"):
+                baseline = load_baseline(baseline_directory)
+                if previous.baseline_digest != (
+                    evidence_digest(baseline.report) if baseline else None
+                ):
+                    raise ValueError("Latest approved baseline changed; repeat release review")
+                verified = review_release(
+                    report,
+                    baseline,
+                    thresholds,
+                    human,
+                    calibration,
+                    previous.approval,
+                    bootstrap=baseline is None,
+                )
+                if verified != previous or verified.decision not in {
+                    ReleaseDecision.PASS,
+                    ReleaseDecision.APPROVED_EXCEPTION,
+                }:
+                    raise ValueError("Release evidence does not permit baseline promotion")
+                approved = ApprovedBaseline(report=report, release=verified)
+                history = baseline_directory / "history"
+                history.mkdir(exist_ok=True)
+                _restrict_private_path(history, 0o700)
+                target = history / f"{evidence_digest(report)}.json"
+                payload = approved.model_dump_json(indent=2)
+                if target.exists() and target.read_text(encoding="utf-8") != payload:
+                    raise ValueError("Approved baseline history changed")
+                if not target.exists():
+                    _atomic_write(target, payload)
+                _restrict_private_path(target, 0o600)
+                latest = baseline_directory / "latest-approved.json"
+                _atomic_write(latest, payload)
+                _restrict_private_path(latest, 0o600)
+            result = {"promoted_run_id": report.run_id, "release_id": command.release_id}
     _atomic_write(receipt, json.dumps(result, sort_keys=True))
     _restrict_private_path(receipt, 0o600)
     return result

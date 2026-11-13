@@ -346,3 +346,45 @@ def test_blind_web_review_precedes_calibration(web) -> None:
     result = client.get(f"/api/evaluation/jobs/{calibrated.json()['job_id']}").json()
     assert result["status"] == "SUCCEEDED"
     assert result["result"]["sample_size"] == 1
+    calibration_id = result["result"]["calibration_id"]
+    thresholds = {
+        "version": "v1", "status": "CALIBRATED", "minimum_precision": 0.95,
+        "minimum_recall": 0.95, "minimum_evidence_accuracy": 0.98,
+        "maximum_precision_regression": 0.02, "maximum_recall_regression": 0.02,
+        "maximum_evidence_regression": 0.02,
+    }
+    release_base = {
+        "kind": "evaluation_action", "project_id": "P1", "report_id": report_id,
+        "human_id": human_id, "calibration_id": calibration_id, "thresholds": thresholds,
+    }
+    prepared = client.post(
+        "/api/evaluation/jobs", json={**release_base, "action": "prepare_release"},
+        headers={**headers, "Idempotency-Key": "prepare-release"},
+    )
+    assert prepared.status_code == 202
+    asyncio.run(run_worker(control.state, once=True))
+    hashes = client.get(f"/api/evaluation/jobs/{prepared.json()['job_id']}").json()["result"]["reviewed_evidence"]
+    assert any(item.startswith("report:") for item in hashes)
+    release = client.post(
+        "/api/evaluation/jobs",
+        json={**release_base, "action": "review_release", "bootstrap": True, "approval": {
+            "candidate_run_id": persisted.run_id, "status": "APPROVED", "reviewer": "QA",
+            "reviewed_at": datetime.now(UTC).isoformat(), "reviewed_evidence": hashes,
+        }},
+        headers={**headers, "Idempotency-Key": "release-review"},
+    )
+    assert release.status_code == 202
+    asyncio.run(run_worker(control.state, once=True))
+    release_result = client.get(f"/api/evaluation/jobs/{release.json()['job_id']}").json()
+    assert release_result["status"] == "SUCCEEDED"
+    assert release_result["result"]["decision"] != "PASS"
+    promoted = client.post(
+        "/api/evaluation/jobs",
+        json={**release_base, "action": "promote_baseline",
+              "release_id": release_result["result"]["release_id"], "confirm_promotion": True},
+        headers={**headers, "Idempotency-Key": "promote"},
+    )
+    assert promoted.status_code == 202
+    asyncio.run(run_worker(control.state, once=True))
+    assert client.get(f"/api/evaluation/jobs/{promoted.json()['job_id']}").json()["status"] == "FAILED"
+    assert not (control.state / "evaluation" / "baselines" / "P1" / "latest-approved.json").exists()
