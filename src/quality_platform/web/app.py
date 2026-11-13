@@ -22,7 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from quality_platform.evaluation.models import BenchmarkReport
 from quality_platform.evaluation.reporting import _restrict_private_path
 from quality_platform.web.control import Conflict, Control, digest
-from quality_platform.web.evaluation import EvaluationImportCommand
+from quality_platform.web.evaluation import EvaluationImportCommand, EvaluationRunCommand
 from quality_platform.web.models import Command, Settings
 from quality_platform.web.queries import (
     artifact_content,
@@ -338,12 +338,23 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
 
     @app.post("/api/evaluation/jobs")
     async def evaluation_job(request: Request) -> Response:
-        form = await request.form(max_files=1, max_fields=3, max_part_size=MAX_FILE)
-        if form.get("kind") != "register_report":
-            raise HTTPException(422, "Unsupported evaluation action")
         key = request.headers.get("idempotency-key", "")
         if not key or len(key) > 200:
             raise HTTPException(422, "Idempotency key is required")
+        if "application/json" in request.headers.get("content-type", ""):
+            run_command = EvaluationRunCommand.model_validate(await request.json())
+            with reader(database) as repo:
+                repo.read_project_record(run_command.project_id, run_command.project_id)
+            control.config(run_command.settings_id)
+            return accepted(
+                request,
+                control.enqueue(
+                    run_command.model_dump(mode="json"), key, request.state.session["actor"]
+                ),
+            )
+        form = await request.form(max_files=1, max_fields=3, max_part_size=MAX_FILE)
+        if form.get("kind") != "register_report":
+            raise HTTPException(422, "Unsupported evaluation action")
         project = str(form.get("project_id", ""))
         with reader(database) as repo:
             repo.read_project_record(project, project)
@@ -367,15 +378,20 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
             with target.open("xb") as stream:
                 stream.write(raw)
         _restrict_private_path(target, 0o600)
-        command = EvaluationImportCommand(
+        import_command = EvaluationImportCommand(
             kind="evaluation_import_report", project_id=project, report_hash=identity
         )
-        return accepted(request, control.enqueue(command.model_dump(mode="json"), key, request.state.session["actor"]))
+        return accepted(
+            request,
+            control.enqueue(
+                import_command.model_dump(mode="json"), key, request.state.session["actor"]
+            ),
+        )
 
     @app.get("/api/evaluation/jobs/{identity}")
     async def evaluation_job_status(request: Request, identity: str) -> Any:
         job = job_context(identity, request.state.session["actor"])
-        if job["command"]["kind"] != "evaluation_import_report":
+        if job["command"]["kind"] not in {"evaluation_import_report", "run_benchmark"}:
             raise HTTPException(404, "Evaluation job not found")
         return job
 
