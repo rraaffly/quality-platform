@@ -5,17 +5,16 @@
 ## Persiapan dan menjalankan layanan
 
 Web ditujukan untuk satu pemilik, satu mesin, SQLite lokal, dan satu worker pemilik hak tulis.
-Distribusi yang disarankan adalah wheel rilis melalui
+Distribusi aplikasi menggunakan wheel rilis melalui
 `uv tool install --python 3.12 /path/to/quality_platform-0.1.0-py3-none-any.whl`, lalu
 `uv tool update-shell` dan buka terminal baru. Wheel memuat backend, frontend hasil build,
 dan resource benchmark sintetis publik; pengguna tidak memerlukan checkout, Bun, Node, atau Git.
 uv mengelola environment Python terisolasi. Dependensi tetap perlu diunduh saat instalasi.
 
-Alternatif source ZIP: unduh arsip rilis, ekstrak ke direktori permanen, lalu jalankan `scripts/install.ps1` di PowerShell
-Windows atau `sh scripts/install.sh` di macOS/Linux. Installer memakai `uv sync --locked --no-dev`
-untuk menyiapkan Python 3.12 dan membuat perintah `quality-platform` di direktori bin pengguna.
-Frontend React sudah dibundel dalam arsip rilis; Bun hanya dibutuhkan saat membangun rilis dari
-source checkout. Lihat [README](../README.md) untuk langkah build dan pengaturan `PATH`.
+Installer source ZIP dan wrapper launcher PowerShell tidak disediakan. Untuk pengembangan
+atau capture evidence, gunakan source checkout dengan `uv sync --locked --dev`, build frontend,
+lalu jalankan CLI melalui `uv run quality-platform`. Bun hanya dibutuhkan untuk build frontend
+dari source. Lihat [README](../README.md) untuk langkah build wheel dan pengaturan `PATH`.
 
 Jalankan perintah berikut dari direktori mana pun:
 
@@ -78,12 +77,11 @@ gunakan `--no-open`. Hentikan layanan sebelum backup konsisten.
 `qa-web serve` tetap tersedia sebagai perintah operasional tingkat rendah untuk konfigurasi server
 lanjutan. Server dan UI berbagi origin agar cookie sesi HttpOnly dan proteksi CSRF bekerja.
 Jika build frontend tidak ada pada source checkout, server mengembalikan HTTP 503 dengan petunjuk
-build. Arsip rilis selalu mewajibkan build ini.
+build. Wheel rilis selalu mewajibkan build ini.
 
 Sebelum upgrade wheel, hentikan layanan dan backup data, kemudian pasang wheel baru dengan
 `uv tool install --force --python 3.12 /path/to/new-release.whl`. Direktori data tidak diganti.
-Jangan memasang launcher ZIP dan wheel pada lokasi bin yang sama. Rollback aplikasi belum tentu
-kompatibel dengan schema database versi baru.
+Rollback aplikasi belum tentu kompatibel dengan schema database versi baru.
 
 Capture workflow/policy evidence hanya tersedia pada source checkout dengan dependensi tes.
 Jalankan benchmark dan capture bersama di checkout tersebut. Instalasi wheel menolak capture

@@ -7,51 +7,6 @@ from zipfile import ZipFile
 
 import pytest
 
-from scripts.package_release import build_archive
-
-
-def test_archive_contains_runtime_and_evidence_without_private_files(tmp_path: Path) -> None:
-    root = tmp_path / "source"
-    required = (
-        "pyproject.toml",
-        "uv.lock",
-        "config.yaml",
-        "README.md",
-        "hatch_build.py",
-        "src/quality_platform/web/launcher.py",
-        "tests/fixtures/srs.md",
-        "benchmarks/rubrics/v0.1.json",
-        "web/dist/index.html",
-        "web/dist/static/js/app.js",
-        "scripts/install.ps1",
-        "scripts/install.sh",
-        "scripts/package_release.py",
-    )
-    for relative in required:
-        target = root / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(relative, encoding="utf-8")
-    for relative in (
-        ".env",
-        ".venv/private.txt",
-        "src/__pycache__/cache.pyc",
-        "benchmarks/datasets/real_world/secret.json",
-        "benchmarks/reports/private.json",
-        "web/node_modules/package/index.js",
-    ):
-        target = root / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("secret", encoding="utf-8")
-
-    archive = tmp_path / "quality-platform.zip"
-    build_archive(root, archive)
-    with ZipFile(archive) as package:
-        names = set(package.namelist())
-        assert {f"quality-platform/{entry}" for entry in required} <= names
-        assert not any("secret" in name or "__pycache__" in name for name in names)
-        assert not any("node_modules" in name or "real_world" in name for name in names)
-        assert not any(".venv" in name or "/.env" in name for name in names)
-
 
 def test_wheel_contains_public_resources_and_rejects_missing_frontend(tmp_path: Path) -> None:
     uv = shutil.which("uv")
@@ -60,8 +15,10 @@ def test_wheel_contains_public_resources_and_rejects_missing_frontend(tmp_path: 
     checkout = Path(__file__).resolve().parents[2]
     root = tmp_path / "source"
     root.mkdir()
-    for name in ("pyproject.toml", "README.md", "hatch_build.py"):
-        shutil.copy2(checkout / name, root / name)
+    for name in ("pyproject.toml", "README.md", "scripts/hatch_build.py"):
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(checkout / name, target)
     (root / ".gitignore").write_text("dist/\n.env*\nreal_world/\n", encoding="utf-8")
     required = {
         "src/quality_platform/__init__.py": "",

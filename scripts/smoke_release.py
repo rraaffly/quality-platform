@@ -1,4 +1,4 @@
-"""Exercise a fresh release installation using the public command contract."""
+"""Exercise a fresh wheel installation using the public command contract."""
 
 from __future__ import annotations
 
@@ -8,12 +8,10 @@ import os
 import re
 import socket
 import subprocess
-import sys
 import tempfile
 from functools import partial
 from pathlib import Path
 from urllib.request import urlopen
-from zipfile import ZipFile
 
 
 def run(
@@ -38,7 +36,7 @@ def run(
     return result.stdout
 
 
-def smoke(archive: Path) -> None:
+def smoke(wheel: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="quality platform release ") as temporary:
         base = Path(temporary)
         bin_dir = base / "bin"
@@ -50,30 +48,28 @@ def smoke(archive: Path) -> None:
             "USERPROFILE": str(home),
             "UV_CACHE_DIR": run(["uv", "cache", "dir"]).strip(),
             "UV_PYTHON_INSTALL_DIR": run(["uv", "python", "dir"]).strip(),
-            "QUALITY_PLATFORM_BIN_DIR": str(bin_dir),
             "UV_TOOL_DIR": str(base / "tools"),
             "UV_TOOL_BIN_DIR": str(bin_dir),
         }
         for key in ("PYTHONPATH", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY"):
             environment.pop(key, None)
         execute = partial(run, env=environment, cwd=base)
-        if archive.suffix == ".whl":
-            execute(["uv", "tool", "install", "--python", "3.12", str(archive)])
-            command = [
-                str(bin_dir / ("quality-platform.exe" if os.name == "nt" else "quality-platform"))
-            ]
-            python = (
-                base
-                / "tools"
-                / "quality-platform"
-                / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-            )
-            execute(
-                [
-                    str(python),
-                    "-I",
-                    "-c",
-                    """
+        execute(["uv", "tool", "install", "--python", "3.12", str(wheel)])
+        command = [
+            str(bin_dir / ("quality-platform.exe" if os.name == "nt" else "quality-platform"))
+        ]
+        python = (
+            base
+            / "tools"
+            / "quality-platform"
+            / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        )
+        execute(
+            [
+                str(python),
+                "-I",
+                "-c",
+                """
 import hashlib
 from quality_platform.evaluation.registry import load_dataset
 from quality_platform.evaluation.workflow_evidence import code_fingerprint
@@ -93,18 +89,8 @@ quote = estimate_benchmark(EvaluationEstimateQuery(tier=2, dataset_version='v0.1
 assert quote['case_count'] > 0 and quote['reservation_usd'] > 0
 assert code_fingerprint() != hashlib.sha256(b'{}').hexdigest()
 """,
-                ]
-            )
-        else:
-            with ZipFile(archive) as package:
-                package.extractall(base)
-            root = base / "quality-platform"
-            if sys.platform == "win32":
-                execute(["powershell", "-NoProfile", "-File", str(root / "scripts/install.ps1")])
-                command = [str(bin_dir / "quality-platform.cmd")]
-            else:
-                execute(["sh", str(root / "scripts/install.sh")])
-                command = [str(bin_dir / "quality-platform")]
+            ]
+        )
         help_text = execute([*command, "--help"])
         for name in ("setup", "config", "dashboard", "status", "stop"):
             assert name in help_text, name
@@ -148,6 +134,8 @@ assert code_fingerprint() != hashlib.sha256(b'{}').hexdigest()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("archive", type=Path, help="Release wheel or source ZIP")
+    parser.add_argument("wheel", type=Path, help="Release wheel (.whl)")
     args = parser.parse_args()
-    smoke(args.archive.resolve())
+    if args.wheel.suffix != ".whl":
+        parser.error("Expected a release wheel (.whl)")
+    smoke(args.wheel.resolve())

@@ -4,7 +4,7 @@ Quality Platform runs QA workflows and evaluation in a local Web app. Use `quali
 
 The bundled benchmark is synthetic-first. Its `v0.1` approved cases lack semantic definitions, quality thresholds are illustrative, and no live-model quality or release readiness is claimed. A release requires approved real cases, calibrated thresholds, independent human review, workflow evidence, and an explicit Web promotion decision.
 
-## Install a release wheel (recommended)
+## Install a release wheel
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), download the release wheel,
 then run the following on Windows, macOS, or Linux:
@@ -23,7 +23,6 @@ packages; the application wheel alone is not an offline dependency bundle.
 For an upgrade, stop the dashboard and back up the private data first, then install the new
 wheel with `uv tool install --force --python 3.12 /path/to/new-release.whl`. Configuration and
 data remain outside the installation. Do not assume an older app can read a newer database.
-Avoid installing the wheel launcher and ZIP launcher into the same user bin directory.
 
 Workflow/policy evidence capture requires the matching source checkout with test dependencies.
 Run the benchmark and evidence suite together there; the wheel deliberately rejects capture
@@ -33,29 +32,14 @@ unless the operator supplies `QA_BENCHMARK_COMMIT_SHA`; that value is an asserti
 Private real-world datasets and reports are never bundled. Prepare those in a source checkout,
 not by writing into the wheel's read-only resources.
 
-## Install a release ZIP
+## Set up and operate the dashboard
 
-1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and extract the release ZIP into a permanent directory. Python 3.12 is installed by uv if needed. The release already contains the built Web UI; Bun is not needed.
-2. From the extracted `quality-platform` directory, run the installer for your OS:
-
-   ```powershell
-   # Windows PowerShell
-   .\scripts\install.ps1
-   ```
-
-   ```sh
-   # macOS or Linux
-   sh scripts/install.sh
-   ```
-
-3. Open a new terminal. The installers add the launcher directory to your user `PATH` when needed. Then run:
-
-   ```sh
-   quality-platform setup
-   quality-platform dashboard
-   quality-platform status
-   quality-platform stop
-   ```
+```sh
+quality-platform setup
+quality-platform dashboard
+quality-platform status
+quality-platform stop
+```
 
 `setup` runs without model or account questions. It initializes the owner display name `Owner`
 and the initial password `1234567890`; sign in with the password only. Change your name and
@@ -95,27 +79,23 @@ cd web
 bun install --frozen-lockfile
 bun run build
 cd ..
-uv build
+uv build --wheel
 uv run python scripts/smoke_release.py dist/quality_platform-0.1.0-py3-none-any.whl
 ```
 
-`uv build` produces a source distribution and a universal application wheel. The build fails
+`uv build --wheel` produces a universal application wheel, the supported release format. The build fails
 if `web/dist/index.html` is absent; frontend compilation is a maintainer step, not an end-user
 installation step. The smoke test installs the wheel with `uv tool install` in a temporary
 tool directory, runs outside the checkout, checks benchmark resources and served frontend assets,
 and exercises unattended setup, model/workspace configuration, start/status/stop/restart without
 model calls. It uses an isolated temporary home directory. Run it on each supported OS.
 The wheel contains application code and resources, not development dependencies or test suites.
-Dependency versions resolve from wheel metadata; `uv.lock` only locks the source/ZIP workflow.
+Dependency versions resolve from wheel metadata; `uv.lock` only locks the source checkout workflow.
 
-The source ZIP remains available for installations that need source-based evidence:
-
-```sh
-uv run python scripts/package_release.py dist/quality-platform.zip
-uv run python scripts/smoke_release.py dist/quality-platform.zip
-```
-
-To run from a source checkout, use `uv run quality-platform setup` and `uv run quality-platform dashboard` after building the frontend. The release ZIP carries the source tree and offline evidence required by the app. Move the extracted installation only while the dashboard is stopped; rerun the installer after moving it to update the launcher path.
+To develop or capture workflow/policy evidence from a source checkout, run
+`uv sync --locked --dev`, build the frontend as above, then use `uv run quality-platform setup`
+and `uv run quality-platform dashboard`. Source ZIP installers and platform-specific launcher
+wrappers are not provided; the same Python CLI operates the app on every supported OS.
 
 ## Verify offline
 

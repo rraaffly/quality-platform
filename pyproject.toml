@@ -55,7 +55,7 @@ exclude = ["__pycache__", "*.pyc", ".env", ".env.*", "real_world", "reports"]
 ignore-vcs = true
 
 [tool.hatch.build.hooks.custom]
-path = "hatch_build.py"
+path = "scripts/hatch_build.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/quality_platform"]
@@ -72,7 +72,7 @@ only-include = [
 [tool.hatch.build.targets.sdist]
 include = [
     "/src", "/tests", "/scripts", "/docs", "/pyproject.toml", "/uv.lock",
-    "/README.md", "/config.yaml", "/hatch_build.py", "/web/dist",
+    "/README.md", "/config.yaml", "/web/dist",
     "/benchmarks/configs", "/benchmarks/rubrics", "/benchmarks/ground_truth/*.json",
     "/benchmarks/datasets/synthetic",
 ]
