@@ -55,7 +55,8 @@
 .desktopToggle, .mobileToggle { width: 32px; min-height: 32px !important; padding: 0 !important; border-radius: 0 !important; }
 .mobileToggle { display: none !important; }
 .newProject { border-radius: 0 !important; }
-.content { min-height: 0; flex: 1; overflow: auto; padding: 16px; scroll-padding: 24px; }
+.content { min-height: 0; flex: 1; overflow: auto; padding: clamp(20px, 3vw, 40px); scroll-padding: 24px; background: color-mix(in oklab, var(--surface-muted) 35%, var(--background)); }
+.content > * { width: 100%; max-width: 1200px; margin-inline: auto; }
 .mobileDrawer { --drawer-size: min(18rem, calc(100vw - 2rem)); border-radius: 0 !important; }
 .mobileDrawer > div:last-child { display: flex; min-height: 0; flex: 1; padding: 0; }
 @media (max-width: 767px) {

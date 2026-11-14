@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Alert } from "#/components/arc/alert/alert";
 import { Button } from "#/components/arc/button/button";
 import { Input } from "#/components/arc/input/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/arc/tabs/tabs";
+import { Folder, KeyRound, ShieldCheck } from "lucide-react";
 import { Field, Heading, Panel, State, Status, field } from "#/features/workspace/ui";
 import { setSession, useAction, useResource } from "#/lib/api";
 import { useEffect, useState, type FormEvent } from "react";
@@ -50,127 +52,188 @@ function SettingsPage() {
     }
   }
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <Heading
         eyebrow="Configuration"
         title="Settings"
-        description="Manage your account, workspace location, and models."
+        description="Your account, local workspace, and the models behind each workflow."
       />
       <State loading={loading} error={error} />
       {data && (
-        <>
-          <AccountSettings account={data.account} />
-          <WorkspaceSettings path={data.workspace_root} onSaved={reload} />
-          <Alert
-            title={data.settings.agent_models ? "New workflows only" : "Models not configured"}
-            tone={data.settings.agent_models ? "info" : "warning"}
-          >
-            {data.settings.agent_models
-              ? "Existing workflows keep their original pinned model snapshot. Saving does not contact a provider."
-              : "Model setup was skipped. Choose a provider and model for every agent before creating workflows or running benchmarks. Saving does not contact a provider."}
-          </Alert>
-          <Panel title="Models & defaults">
-            <p className="text-sm text-muted-foreground">
-              One explicit model per agent. No automatic routing or fallback.
-            </p>
-            <form
-              key={data.settings_id}
-              onSubmit={(event) => void save(event)}
-              className="space-y-4"
+        <Tabs defaultValue="general">
+          <TabsList aria-label="Settings sections">
+            <TabsTrigger value="general">Account & workspace</TabsTrigger>
+            <TabsTrigger value="models">Models & defaults</TabsTrigger>
+            <TabsTrigger value="connections">Provider connections</TabsTrigger>
+          </TabsList>
+          <TabsContent value="general" className="space-y-5 pt-2">
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+              <AccountSettings account={data.account} />
+              <div className="space-y-5">
+                <WorkspaceSettings path={data.workspace_root} onSaved={reload} />
+                <div className="flex items-start gap-3 px-1 text-xs leading-relaxed text-muted-foreground">
+                  <ShieldCheck size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  <p>
+                    Account changes require your current password. Replacing it signs out every
+                    session; changing your display name keeps the audit identity intact.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+          <TabsContent value="models" className="space-y-5 pt-2">
+            <Alert
+              title={data.settings.agent_models ? "New workflows only" : "Models not configured"}
+              tone={data.settings.agent_models ? "info" : "warning"}
             >
-              {roles.map((role) => (
-                <div
-                  key={role}
-                  className="grid gap-3 border-b border-border pb-4 md:grid-cols-[1fr_10rem_1fr]"
-                >
-                  <strong className="capitalize">{role}</strong>
-                  <Field label="Provider">
-                    <select
-                      name={`${role}_provider`}
-                      className={field}
-                      defaultValue={data.settings.agent_models?.[role]?.provider ?? ""}
-                      required
-                    >
-                      <option value="" disabled>
-                        Select provider
-                      </option>
-                      <option>openai</option>
-                      <option>anthropic</option>
-                      <option>google</option>
-                    </select>
-                  </Field>
-                  <Field label="Model ID">
+              {data.settings.agent_models
+                ? "Existing workflows keep their original pinned model snapshot. Saving does not contact a provider."
+                : "Choose a provider and model for all four agents before creating workflows or running benchmarks. Saving does not contact a provider."}
+            </Alert>
+            <Panel
+              title="Agent models"
+              description="One explicit model per agent. No automatic routing or fallback."
+            >
+              <form
+                key={data.settings_id}
+                onSubmit={(event) => void save(event)}
+                className="space-y-6"
+              >
+                {roles.map((role, index) => (
+                  <div
+                    key={role}
+                    className="grid items-start gap-4 border-b border-border pb-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.4fr)]"
+                  >
+                    <div className="flex items-start gap-3 pt-1">
+                      <span className="pt-0.5 font-mono text-[10px] text-muted-foreground">
+                        0{index + 1}
+                      </span>
+                      <div>
+                        <strong className="text-[13px] font-semibold capitalize">{role}</strong>
+                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                          {
+                            [
+                              "Coordinates workflow decisions",
+                              "Analyzes source requirements",
+                              "Builds test plans and cases",
+                              "Reviews output quality",
+                            ][index]
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    <Field label="Provider">
+                      <select
+                        name={`${role}_provider`}
+                        className={field}
+                        defaultValue={data.settings.agent_models?.[role]?.provider ?? ""}
+                        required
+                      >
+                        <option value="" disabled>
+                          Select provider
+                        </option>
+                        <option>openai</option>
+                        <option>anthropic</option>
+                        <option>google</option>
+                      </select>
+                    </Field>
+                    <Field label="Model ID">
+                      <input
+                        name={`${role}_model_id`}
+                        defaultValue={data.settings.agent_models?.[role]?.model_id ?? ""}
+                        className={field}
+                        placeholder="Enter an exact model ID"
+                        required
+                      />
+                    </Field>
+                  </div>
+                ))}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Max concurrency">
                     <input
-                      name={`${role}_model_id`}
-                      defaultValue={data.settings.agent_models?.[role]?.model_id ?? ""}
-                      className={field}
+                      type="number"
+                      min={1}
+                      max={16}
                       required
+                      name="max_concurrency"
+                      defaultValue={data.settings.max_concurrency}
+                      className={field}
                     />
                   </Field>
+                  <Field label="Test case format">
+                    <select
+                      name="test_case_style"
+                      defaultValue={data.settings.test_case_style}
+                      className={field}
+                    >
+                      <option>both</option>
+                      <option>detailed</option>
+                      <option>gherkin</option>
+                    </select>
+                  </Field>
                 </div>
-              ))}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Max concurrency">
-                  <input
-                    type="number"
-                    min={1}
-                    max={16}
-                    required
-                    name="max_concurrency"
-                    defaultValue={data.settings.max_concurrency}
-                    className={field}
-                  />
-                </Field>
-                <Field label="Test case format">
-                  <select
-                    name="test_case_style"
-                    defaultValue={data.settings.test_case_style}
-                    className={field}
+                {action.error && (
+                  <Alert tone="danger" title="Settings not saved">
+                    {action.error}
+                  </Alert>
+                )}
+                {saved && <Alert tone="success" title="Model settings saved" />}
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-5">
+                  <p className="text-xs text-muted-foreground">
+                    Changes apply to new workflows only.
+                  </p>
+                  <Button type="submit" loading={action.busy}>
+                    Save model settings
+                  </Button>
+                </div>
+              </form>
+              <p className="break-all font-mono text-[10px] text-muted-foreground">
+                Active version: {data.settings_id}
+              </p>
+            </Panel>
+          </TabsContent>
+          <TabsContent value="connections" className="space-y-5 pt-2">
+            <Panel
+              title="Provider connections"
+              description="Credentials stay in the server environment. Keys are never displayed or stored in your browser."
+            >
+              <div className="divide-y divide-border">
+                {Object.entries(data.credentials).map(([provider, configured]) => (
+                  <div
+                    key={provider}
+                    className="flex flex-wrap items-center justify-between gap-3 py-5 first:pt-0 last:pb-0"
                   >
-                    <option>both</option>
-                    <option>detailed</option>
-                    <option>gherkin</option>
-                  </select>
-                </Field>
+                    <div className="flex items-center gap-3">
+                      <span className="grid size-9 place-items-center border border-border text-muted-foreground">
+                        <KeyRound size={16} aria-hidden="true" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-medium capitalize">{provider}</p>
+                        <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                          {provider === "google"
+                            ? "GOOGLE_API_KEY"
+                            : `${provider.toUpperCase()}_API_KEY`}
+                        </p>
+                      </div>
+                    </div>
+                    <Status value={configured ? "CONFIGURED" : "MISSING CREDENTIAL"} />
+                  </div>
+                ))}
               </div>
-              {action.error && (
-                <Alert tone="danger" title="Settings not saved">
-                  {action.error}
-                </Alert>
-              )}
-              {saved && <Alert tone="success" title="Model settings saved" />}
-              <Button type="submit" size="sm" loading={action.busy}>
-                Save a new settings version
-              </Button>
-            </form>
-            <p className="break-all text-xs text-muted-foreground">
-              Active version: {data.settings_id}
-            </p>
-          </Panel>
-          <Panel title="Provider connections">
-            <p className="text-sm text-muted-foreground">
-              Keys are provided by the server environment, never displayed or stored in the browser.
-            </p>
-            <div className="flex flex-wrap gap-5">
-              {Object.entries(data.credentials).map(([provider, configured]) => (
-                <div key={provider} className="flex items-center gap-2 text-sm capitalize">
-                  {provider}
-                  <Status value={configured ? "Configured" : "Missing credential"} />
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Configured means the variable exists, not that the key is valid. Restart services to
-              apply environment changes.
-            </p>
-          </Panel>
-          <Panel title="Cost & limits">
-            <p className="text-sm">
-              Workflow cost is not measured and there is no hard monetary cap. Benchmark pricing and
-              budgets remain CLI-only.
-            </p>
-          </Panel>
-        </>
+              <p className="text-xs text-muted-foreground">
+                Configured means the variable exists, not that the key is valid. Restart services to
+                apply environment changes.
+              </p>
+            </Panel>
+            <Panel title="Cost & limits">
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Workflow cost is not measured and has no hard monetary cap. Benchmark runs require
+                declared token prices, a cost reservation, and explicit confirmation on the
+                Benchmark reports page.
+              </p>
+            </Panel>
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
@@ -194,12 +257,19 @@ function WorkspaceSettings({ path, onSaved }: { path: string; onSaved: () => Pro
     }
   }
   return (
-    <Panel title="Workspace location">
-      <p className="text-sm text-muted-foreground">
-        The default is ~/.quality-platform/workspace. Changes apply to new projects only; existing
-        projects stay in their current locations and are not moved.
-      </p>
-      <p className="break-all text-xs text-muted-foreground">Current workspace: {path}</p>
+    <Panel
+      title="Workspace location"
+      description="Choose where new projects and their source snapshots are stored."
+    >
+      <div className="flex items-start gap-3 border border-border bg-muted/40 p-3">
+        <Folder size={16} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <div className="min-w-0">
+          <p className="mb-1 font-mono text-[10px] text-muted-foreground uppercase">
+            Current directory
+          </p>
+          <p className="break-all font-mono text-[11px] leading-relaxed">{path}</p>
+        </div>
+      </div>
       <form onSubmit={(event) => void save(event)} className="space-y-4">
         <Input
           label="Workspace path"
@@ -219,9 +289,15 @@ function WorkspaceSettings({ path, onSaved }: { path: string; onSaved: () => Pro
             New projects will be created in {savedPath}. Existing projects have not moved.
           </Alert>
         )}
-        <Button type="submit" size="sm" loading={action.busy}>
-          Save workspace location
-        </Button>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Changes apply to new projects only. Existing projects stay in their current locations; no
+          files are moved.
+        </p>
+        <div className="border-t border-border pt-4">
+          <Button type="submit" variant="secondary" loading={action.busy}>
+            Save workspace location
+          </Button>
+        </div>
       </form>
     </Panel>
   );
@@ -271,14 +347,17 @@ function AccountSettings({
     }
   }
   return (
-    <Panel title="Account">
+    <Panel title="Account" description="Manage your display name and sign-in password.">
       {account.default_password && (
         <Alert tone="warning" title="Initial password still in use">
           Replace the initial password with one of at least 12 characters. This warning stays until
           you replace it.
         </Alert>
       )}
-      <form onSubmit={(event) => void save(event)} className="space-y-4">
+      <form
+        onSubmit={(event) => void save(event)}
+        className="grid items-start gap-5 md:grid-cols-2"
+      >
         <Input
           label="Display name"
           name="display_name"
@@ -309,19 +388,23 @@ function AccountSettings({
           autoComplete="new-password"
           minLength={12}
         />
-        <p className="text-sm text-muted-foreground">
-          Changing your password signs out every session, including this one. Sign in again with
-          your new password.
-        </p>
-        {(validationError || action.error) && (
-          <Alert tone="danger" title="Account not saved">
-            {validationError || action.error}
-          </Alert>
-        )}
-        {saved && <Alert tone="success" title="Account name saved" />}
-        <Button type="submit" size="sm" loading={action.busy}>
-          Save account
-        </Button>
+        <div className="space-y-4 md:col-span-2">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Changing your password signs out every session, including this one. Sign in again with
+            your new password.
+          </p>
+          {(validationError || action.error) && (
+            <Alert tone="danger" title="Account not saved">
+              {validationError || action.error}
+            </Alert>
+          )}
+          {saved && <Alert tone="success" title="Account name saved" />}
+          <div className="flex justify-end border-t border-border pt-5">
+            <Button type="submit" loading={action.busy}>
+              Save account
+            </Button>
+          </div>
+        </div>
       </form>
     </Panel>
   );

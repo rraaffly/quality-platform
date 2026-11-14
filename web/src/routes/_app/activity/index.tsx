@@ -1,4 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { Activity, ArrowUpRight } from "lucide-react";
+import { EmptyState } from "#/components/arc/empty-state/empty-state";
 import { Heading, Panel, State, Status } from "#/features/workspace/ui";
 import { type Job, useResource } from "#/lib/api";
 
@@ -10,7 +12,7 @@ function ActivityPage() {
     true,
   );
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <Heading
         eyebrow="Execution"
         title="Activity"
@@ -18,27 +20,85 @@ function ActivityPage() {
       />
       <State loading={loading} error={error} />
       {data && (
-        <Panel title="Recent jobs">
+        <Panel
+          title="Recent jobs"
+          action={
+            <span className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">
+              Execution log
+            </span>
+          }
+        >
           {data.jobs.length ? (
-            data.jobs.map((job) => (
-              <Link
-                key={job.id}
-                to="/activity/$job"
-                params={{ job: job.id }}
-                className="flex items-center justify-between gap-3 border-b border-border py-3 hover:text-primary"
-              >
-                <span>
-                  <strong className="block text-sm">{job.command.kind.replaceAll("_", " ")}</strong>
-                  <small className="text-muted-foreground">
-                    {job.command.project_id} · {job.command.workflow_id || "project"} ·{" "}
-                    {new Date(job.created * 1000).toLocaleString()}
-                  </small>
-                </span>
-                <Status value={job.status} />
-              </Link>
-            ))
+            <ul className="divide-y divide-border">
+              {data.jobs.map((job) => (
+                <li key={job.id}>
+                  <Link
+                    to="/activity/$job"
+                    params={{ job: job.id }}
+                    className="group grid min-w-0 gap-4 py-6 transition-colors hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground md:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <span className="min-w-0 space-y-3">
+                      <span className="flex items-center gap-3">
+                        <strong className="text-base font-medium capitalize">
+                          {job.command.kind.replaceAll("_", " ")}
+                        </strong>
+                        <ArrowUpRight
+                          aria-hidden="true"
+                          className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground"
+                        />
+                      </span>
+                      <span className="block break-all font-mono text-[11px] text-muted-foreground">
+                        {job.id}
+                      </span>
+                      <span className="grid gap-3 text-xs sm:grid-cols-2">
+                        <span className="min-w-0">
+                          <span className="mb-1 block font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
+                            Project
+                          </span>
+                          <span className="block break-all font-mono">
+                            {job.command.project_id}
+                          </span>
+                        </span>
+                        <span className="min-w-0">
+                          <span className="mb-1 block font-mono text-[10px] tracking-widest text-muted-foreground uppercase">
+                            Workflow
+                          </span>
+                          <span className="block break-all font-mono">
+                            {job.command.workflow_id || "Project-level command"}
+                          </span>
+                        </span>
+                      </span>
+                      {job.error && (
+                        <span className="block break-words text-sm text-foreground">
+                          {job.error}
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex flex-wrap items-center justify-between gap-3 md:flex-col md:items-end md:justify-start">
+                      <Status value={job.status} />
+                      <time
+                        dateTime={new Date(job.created * 1000).toISOString()}
+                        className="font-mono text-[11px] text-muted-foreground"
+                      >
+                        {new Date(job.created * 1000).toLocaleString()}
+                      </time>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">No commands yet.</p>
+            <EmptyState
+              icon={<Activity size={24} strokeWidth={1.5} />}
+              title="No activity yet"
+              description="Commands appear here when you start work in a project or queue a benchmark. Open a job to inspect its result and any decisions that need review."
+              action={
+                <Link to="/workspace" className="text-sm font-medium underline underline-offset-4">
+                  Browse projects
+                </Link>
+              }
+              className="py-12"
+            />
           )}
         </Panel>
       )}

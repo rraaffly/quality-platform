@@ -1,8 +1,9 @@
-import type { FormEvent, ReactNode } from "react";
+import { cloneElement, useId, type FormEvent, type ReactElement, type ReactNode } from "react";
 import { Alert } from "#/components/arc/alert/alert";
 import { Badge } from "#/components/arc/badge/badge";
 import { Button } from "#/components/arc/button/button";
 import { useAction } from "#/lib/api";
+import styles from "./ui.module.css";
 
 export function Heading({
   eyebrow,
@@ -16,38 +17,59 @@ export function Heading({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <p className="mb-2 text-xs font-semibold tracking-[.16em] text-primary uppercase">
-          {eyebrow}
-        </p>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">{title}</h1>
-        {description && <p className="mt-2 text-sm text-muted-foreground">{description}</p>}
+    <div className={styles.heading}>
+      <div className="min-w-0">
+        <p className={styles.eyebrow}>{eyebrow}</p>
+        <h1 className={styles.title}>{title}</h1>
+        {description && <p className={styles.description}>{description}</p>}
       </div>
-      {action}
+      {action && <div className={styles.headingAction}>{action}</div>}
     </div>
   );
 }
 
 export function Panel({
   title,
+  description,
   children,
   action,
 }: {
   title?: string;
+  description?: string;
   children: ReactNode;
   action?: ReactNode;
 }) {
   return (
-    <section className="min-w-0 border border-border bg-card shadow-xs">
+    <section className={styles.panel}>
       {title && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-          <h2 className="font-semibold">{title}</h2>
+        <div className={styles.panelHeader}>
+          <div className="min-w-0">
+            <h2>{title}</h2>
+            {description && <p>{description}</p>}
+          </div>
           {action}
         </div>
       )}
-      <div className="space-y-4 p-5">{children}</div>
+      <div className={styles.panelBody}>{children}</div>
     </section>
+  );
+}
+
+export function Summary({
+  items,
+}: {
+  items: { label: string; value: ReactNode; detail?: string }[];
+}) {
+  return (
+    <dl className={styles.summary}>
+      {items.map(({ label, value, detail }) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+          {detail && <p>{detail}</p>}
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -71,6 +93,7 @@ export function Status({ value }: { value: string }) {
   return (
     <Badge
       size="sm"
+      className="font-mono text-[10px]"
       tone={
         /FAILED|BLOCKED|REJECTED|STALE|INTERRUPTED/.test(value)
           ? "warning"
@@ -151,13 +174,20 @@ export function ActionForm({
   );
 }
 
-export const field =
-  "w-full border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-primary";
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export const field = styles.control;
+export function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactElement<{ id?: string }>;
+}) {
+  const generatedId = useId();
+  const id = children.props.id ?? generatedId;
   return (
-    <label className="block space-y-1 text-xs font-medium text-muted-foreground">
-      <span>{label}</span>
-      {children}
-    </label>
+    <div className={styles.field}>
+      <label htmlFor={id}>{label}</label>
+      {cloneElement(children, { id })}
+    </div>
   );
 }

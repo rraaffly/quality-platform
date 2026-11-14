@@ -72,10 +72,10 @@
   --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem;
   --space-5: 1.125rem; --space-6: 1.25rem; --space-8: 1.5rem; --space-10: 2rem;
   --space-12: 2.5rem; --space-16: 3rem; --space-20: 3.5rem; --space-24: 4rem;
-  --radius-control: .875rem; --radius-panel: 1.25rem; --radius-surface: 1.5rem; --radius-pill: 9999px;
+  --radius-control: 0px; --radius-panel: 0px; --radius-surface: 0px; --radius-pill: 0px;
   --control-height-sm: 2rem; --control-height-md: 2.5rem; --control-height-lg: 2.75rem;
-  --font-display: var(--font-geist, "Geist Variable"), sans-serif;
-  --font-body: var(--font-inter, "Inter Variable"), sans-serif;
+  --font-display: "Instrument Sans Variable", sans-serif;
+  --font-body: "Instrument Sans Variable", sans-serif;
   --text-xs: .75rem; --text-sm: .8125rem; --text-base: .9375rem; --text-lg: 1.0625rem;
   --text-xl: 1.25rem; --text-2xl: 1.375rem; --text-3xl: 1.75rem;
   --text-4xl: 2.125rem; --text-5xl: 2.5rem;
@@ -92,8 +92,44 @@
   --duration-instant: 100ms; --duration-fast: 150ms; --duration-standard: 200ms; --duration-considered: 360ms; --duration-spring: 440ms;
 }
 
-/* The scale above is compact, modelled on the iOS and Material ramps: 12 caption, 13 secondary, 15 body, 17 emphasis, then 20, 22, 28, 34 and 40
-   for headings; controls 32, 40 and 44px; radii 14, 20 and 24px. On phones typed text goes to 16px so focusing a field never zooms the page.
+/* The application uses square corners, including portals, pseudo-elements, and Arc's
+   size variants with calculated or fixed radii. Keep this invariant across components. */
+*, *::before, *::after { border-radius: 0 !important; }
+
+/* Native checkbox rendering can ignore border-radius; preserve native form semantics
+   while matching Arc's square control and keyboard-focus treatment. */
+input[type="checkbox"] {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  vertical-align: middle;
+  cursor: pointer;
+}
+input[type="checkbox"]::before {
+  content: "";
+  width: 5px;
+  height: 9px;
+  border: solid var(--control-glyph);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-1px) rotate(45deg);
+  visibility: hidden;
+}
+input[type="checkbox"]:checked { border-color: var(--control-on); background: var(--control-on); }
+input[type="checkbox"]:checked::before { visibility: visible; }
+input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
+@media (forced-colors: active) {
+  input[type="checkbox"]:checked { border-color: Highlight; background: Highlight; }
+  input[type="checkbox"]::before { border-color: HighlightText; }
+}
+
+/* The scale above is compact: 12 caption, 13 secondary, 15 body, 17 emphasis, then 20, 22, 28, 34 and 40
+   for headings; controls 32, 40 and 44px. On phones typed text goes to 16px so focusing a field never zooms the page.
    data-arc-density="comfortable" on <html> (or any element) restores the earlier, larger scale. */
 @media (max-width: 640px) {
   :root { --text-field: 1rem; }
@@ -103,7 +139,7 @@
   --text-xl: 1.375rem; --text-2xl: 1.75rem; --text-3xl: 2.25rem;
   --text-4xl: 3.25rem; --text-5xl: 4.5rem; --text-field: .875rem;
   --control-height-sm: 2.25rem; --control-height-md: 2.75rem; --control-height-lg: 3.125rem;
-  --radius-control: 1.125rem; --radius-panel: 1.625rem; --radius-surface: 2.125rem;
+  --radius-control: 0px; --radius-panel: 0px; --radius-surface: 0px;
   --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
   --space-12: 3rem; --space-16: 4rem; --space-20: 5rem; --space-24: 6rem;
 }

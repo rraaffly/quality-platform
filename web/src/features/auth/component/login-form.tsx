@@ -64,7 +64,7 @@ export function LoginForm() {
         </Alert>
       )}
       <Button type="submit" loading={busy} className="w-full">
-        Sign in to workspace
+        Sign in
       </Button>
     </form>
   );
