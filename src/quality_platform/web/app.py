@@ -6,6 +6,7 @@ import html
 import json
 import os
 import secrets
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -21,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from quality_platform.evaluation.models import BenchmarkReport
 from quality_platform.evaluation.reporting import _restrict_private_path
+from quality_platform.resources import runtime_root
 from quality_platform.web.control import Conflict, Control, digest
 from quality_platform.web.evaluation import (
     EvaluationActionCommand,
@@ -32,7 +34,7 @@ from quality_platform.web.evaluation import (
     review_packet,
     web_report,
 )
-from quality_platform.web.models import Command, Settings
+from quality_platform.web.models import AccountSettings, Command, Settings, WorkspaceSettings
 from quality_platform.web.queries import (
     artifact_content,
     reader,
@@ -42,7 +44,6 @@ from quality_platform.web.queries import (
 )
 from quality_platform.web.worker import confined
 
-BASE = Path(__file__).parent
 MAX_BODY = 21 * 1024 * 1024
 MAX_FILE = 5 * 1024 * 1024
 
@@ -62,6 +63,10 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
             or origin.username
         ):
             raise ValueError("Public origin must be an HTTPS origin without credentials or a path")
+        if control.account()["default_password"]:
+            raise ValueError(
+                "Change the initial password in local Web Settings before remote access"
+            )
         public_origin = public_origin.rstrip("/")
     else:
         origin = None
@@ -77,12 +82,23 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
             *([str(origin.hostname)] if origin else []),
         ],
     )
-    frontend = BASE.parents[2] / "web" / "dist"
+    frontend = runtime_root() / "web" / "dist"
     if (frontend / "static").is_dir():
         app.mount("/static", StaticFiles(directory=frontend / "static"), name="static")
 
     @app.middleware("http")
     async def security(request: Request, call_next: Any) -> Response:
+        client = request.client.host if request.client else ""
+        if control.account()["default_password"]:
+            try:
+                local = ip_address(client).is_loopback
+            except ValueError:
+                local = testing and client == "testclient"
+            if public_origin or not local:
+                return JSONResponse(
+                    {"detail": "Change the initial password locally before remote access."},
+                    status_code=403,
+                )
         session = control.session(request.cookies.get("qa_session"))
         request.state.session = session
         path = request.url.path
@@ -144,16 +160,28 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
     @app.get("/api/session")
     async def session_info(request: Request) -> Response:
         session = request.state.session
+        account = control.account()
+        profile = {
+            "display_name": account["display_name"],
+            "default_password": account["default_password"],
+        }
         csrf = request.cookies.get("qa_csrf", "")
         if session and secrets.compare_digest(digest(csrf), session["csrf"]):
             return JSONResponse(
-                {"actor": session["actor"], "csrf": csrf, "worker_healthy": control.healthy()}
+                {
+                    "actor": session["actor"],
+                    "csrf": csrf,
+                    "worker_healthy": control.healthy(),
+                    **profile,
+                }
             )
         if request.cookies.get("qa_session"):
             control.logout(request.cookies["qa_session"])
         token, csrf = control.new_session()
         return cookies(
-            JSONResponse({"actor": None, "csrf": csrf, "worker_healthy": control.healthy()}),
+            JSONResponse(
+                {"actor": None, "csrf": csrf, "worker_healthy": control.healthy(), **profile}
+            ),
             token,
             csrf,
         )
@@ -212,7 +240,9 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
     async def login(request: Request) -> Response:
         is_json = "application/json" in request.headers.get("content-type", "")
         values = await request.json() if is_json else await request.form()
-        owner, password = str(values.get("owner", "")), str(values.get("password", ""))
+        account = control.account()
+        owner = str(values.get("owner", account["name"]))
+        password = str(values.get("password", ""))
         client = request.client.host if request.client else "local"
         if not control.login(client, owner, password):
             if is_json:
@@ -223,7 +253,15 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         control.logout(request.cookies["qa_session"])
         token, csrf = control.new_session(owner)
         response = (
-            JSONResponse({"actor": owner, "csrf": csrf, "worker_healthy": control.healthy()})
+            JSONResponse(
+                {
+                    "actor": owner,
+                    "csrf": csrf,
+                    "worker_healthy": control.healthy(),
+                    "display_name": account["display_name"],
+                    "default_password": account["default_password"],
+                }
+            )
             if is_json
             else RedirectResponse("/workspace", status_code=303)
         )
@@ -266,6 +304,7 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         return {
             "projects": items,
             "settings_id": control.settings_id(),
+            "models_configured": control.local_config().agent_models is not None,
             "worker_healthy": control.healthy(),
         }
 
@@ -302,6 +341,13 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         command = Command.model_validate(values)
         if command.kind == "import":
             raise HTTPException(422, "Use the source upload endpoint")
+        if (
+            command.kind == "create_workflow"
+            and control.local_config(command.settings_id).agent_models is None
+        ):
+            raise HTTPException(
+                409, "Configure all agent models in Settings before creating a workflow"
+            )
         if command.kind != "create_project":
             with reader(database) as repo:
                 repo.read_project_record(command.project_id, command.project_id)
@@ -670,10 +716,16 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
 
     @app.get("/api/settings")
     async def inspect_settings() -> Any:
-        config = control.config()
+        config = control.local_config()
+        account = control.account()
         return {
             "settings": config.model_dump(mode="json", exclude={"database_path", "workspace_root"}),
             "settings_id": control.settings_id(),
+            "workspace_root": str(config.workspace_root),
+            "account": {
+                "display_name": account["display_name"],
+                "default_password": account["default_password"],
+            },
             "credentials": {
                 provider: bool(os.getenv(key))
                 for provider, key in {
@@ -712,6 +764,45 @@ def create_app(state: Path, *, public_origin: str | None = None, testing: bool =
         if "application/json" in request.headers.get("content-type", ""):
             return JSONResponse({"settings_id": identity}, status_code=201)
         return RedirectResponse("/settings", status_code=303)
+
+    @app.post("/api/workspace")
+    async def workspace_save(request: Request) -> Response:
+        values = WorkspaceSettings.model_validate(await request.json())
+        key = request.headers.get("idempotency-key", "")
+        if not key or len(key) > 200:
+            raise HTTPException(422, "Idempotency key is required")
+        try:
+            identity = control.save_workspace(
+                values.path, key=key, actor=request.state.session["actor"]
+            )
+        except OSError as error:
+            raise HTTPException(422, "Workspace must be a writable directory.") from error
+        return JSONResponse(
+            {
+                "settings_id": identity,
+                "workspace_root": str(control.local_config(identity).workspace_root),
+            }
+        )
+
+    @app.post("/api/account")
+    async def account_save(request: Request) -> Response:
+        values = AccountSettings.model_validate(await request.json())
+        try:
+            logged_out = control.update_account(
+                values.display_name,
+                values.current_password,
+                values.new_password,
+                client=request.client.host if request.client else "local",
+            )
+        except PermissionError as error:
+            raise HTTPException(
+                403, "Current password is incorrect or temporarily rate-limited."
+            ) from error
+        response = JSONResponse({"logged_out": logged_out})
+        if logged_out:
+            response.delete_cookie("qa_session")
+            response.delete_cookie("qa_csrf")
+        return response
 
     @app.get("/reports", response_class=HTMLResponse)
     async def reports(request: Request) -> Response:

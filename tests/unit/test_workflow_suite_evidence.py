@@ -223,3 +223,11 @@ def test_executed_but_skipped_workflow_suite_cannot_clear_missing_evidence(
     attached = attach_workflow_evidence(candidate, evidence)
     assert attached.decision == ReleaseDecision.REVIEW_REQUIRED
     assert "E2E_WORKFLOW_EVIDENCE_MISSING" in attached.readiness_labels
+
+
+def test_capture_without_source_tests_cannot_claim_workflow_evidence(tmp_path: Path) -> None:
+    candidate = report(tmp_path)
+    junit = tmp_path / "missing-source.junit.xml"
+    with pytest.raises(ValueError, match="requires the source checkout"):
+        capture_workflow_suite(candidate, junit, root=tmp_path)
+    assert not junit.exists()

@@ -5,7 +5,13 @@
 ## Persiapan dan menjalankan layanan
 
 Web ditujukan untuk satu pemilik, satu mesin, SQLite lokal, dan satu worker pemilik hak tulis.
-Unduh arsip rilis, ekstrak ke direktori permanen, lalu jalankan `scripts/install.ps1` di PowerShell
+Distribusi yang disarankan adalah wheel rilis melalui
+`uv tool install --python 3.12 /path/to/quality_platform-0.1.0-py3-none-any.whl`, lalu
+`uv tool update-shell` dan buka terminal baru. Wheel memuat backend, frontend hasil build,
+dan resource benchmark sintetis publik; pengguna tidak memerlukan checkout, Bun, Node, atau Git.
+uv mengelola environment Python terisolasi. Dependensi tetap perlu diunduh saat instalasi.
+
+Alternatif source ZIP: unduh arsip rilis, ekstrak ke direktori permanen, lalu jalankan `scripts/install.ps1` di PowerShell
 Windows atau `sh scripts/install.sh` di macOS/Linux. Installer memakai `uv sync --locked --no-dev`
 untuk menyiapkan Python 3.12 dan membuat perintah `quality-platform` di direktori bin pengguna.
 Frontend React sudah dibundel dalam arsip rilis; Bun hanya dibutuhkan saat membangun rilis dari
@@ -20,12 +26,42 @@ quality-platform status
 quality-platform stop
 ```
 
-`setup` meminta provider/model, pemilik, dan kata sandi. Ia menyimpan konfigurasi, database,
-workspace, dan state di direktori data pengguna, bukan di direktori instalasi.
-Anda juga dapat memakai `--config /absolute/config.yaml`, `--owner qa`, dan `--data-dir /absolute/data`
-untuk konfigurasi yang sudah disiapkan. Pilih provider/model secara eksplisit; tidak ada model
-default atau fallback otomatis. `setup` berulang tidak mengubah akun atau data yang sudah ada.
-Jangan masukkan kata sandi sebagai argumen shell. State hanya menyimpan hash kata sandi.
+`setup` langsung menginisialisasi aplikasi tanpa pertanyaan model, nama, atau kata sandi.
+Nama tampilan awal adalah `Owner`, dengan kata sandi awal `1234567890`. Login hanya meminta
+kata sandi. Ubah nama tampilan dan kata sandi melalui **Settings → Account** dengan memasukkan
+kata sandi saat ini. Kata sandi pengganti minimal 12 karakter; penggantian mencabut seluruh sesi
+dan mewajibkan login ulang. Identitas audit tetap sama ketika nama tampilan diganti.
+State hanya menyimpan hash kata sandi. Peringatan password awal tetap tampil sampai diganti,
+dan mode remote tidak dapat dijalankan sebelum penggantian.
+
+Data aplikasi selalu berada di home pengguna yang menjalankan CLI:
+
+- Linux: `/home/<user>/.quality-platform`.
+- macOS: `/Users/<user>/.quality-platform`.
+- Windows: `%USERPROFILE%\.quality-platform`, biasanya `C:\Users\<user>\.quality-platform`.
+
+Database domain ada di `domain.sqlite`, workspace default di `workspace/`, dan state kontrol,
+antrean, serta log di `state/`. Tidak ada opsi `--data-dir`, `--skip-models`, `--config`,
+`--owner`, atau `--password-stdin` pada setup. Tidak ada migrasi data lama.
+`setup` berulang tidak mengubah akun, pengaturan aktif, atau data yang sudah ada.
+
+Dashboard dan pembuatan proyek dapat digunakan tanpa model; pembuatan workflow dan benchmark
+memerlukan konfigurasi seluruh agent terlebih dahulu. Pilih model melalui **Settings** atau:
+
+```sh
+quality-platform config model
+quality-platform config workspace /absolute/path/to/workspace
+```
+
+`config model` menanyakan provider/model untuk empat agent tanpa memanggil provider.
+Tidak ada model placeholder atau fallback otomatis. Workspace juga dapat diganti melalui
+**Settings → Workspace location**; path Web harus absolut atau memakai `~/...`, sedangkan CLI
+juga menerima path relatif terhadap direktori terminal. Direktori diperiksa agar bisa ditulis.
+Perubahan workspace hanya berlaku untuk **proyek baru**. Proyek lama tetap memakai lokasi
+semula, termasuk workflow baru dan impor dokumen di dalam proyek itu. Tidak ada pemindahan
+file otomatis; database dan state aplikasi tetap berada di `.quality-platform`.
+CLI dan Web memakai pengaturan berversi yang sama di database kontrol, tanpa perlu restart.
+`config.yaml` adalah catatan bootstrap awal, bukan editor pengaturan aktif.
 
 Kredensial `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, atau `GOOGLE_API_KEY` disediakan lewat environment
 sebelum `dashboard` dinyalakan. `.env` tidak otomatis dimuat. Jangan masukkan rahasia ke YAML,
@@ -43,6 +79,18 @@ gunakan `--no-open`. Hentikan layanan sebelum backup konsisten.
 lanjutan. Server dan UI berbagi origin agar cookie sesi HttpOnly dan proteksi CSRF bekerja.
 Jika build frontend tidak ada pada source checkout, server mengembalikan HTTP 503 dengan petunjuk
 build. Arsip rilis selalu mewajibkan build ini.
+
+Sebelum upgrade wheel, hentikan layanan dan backup data, kemudian pasang wheel baru dengan
+`uv tool install --force --python 3.12 /path/to/new-release.whl`. Direktori data tidak diganti.
+Jangan memasang launcher ZIP dan wheel pada lokasi bin yang sama. Rollback aplikasi belum tentu
+kompatibel dengan schema database versi baru.
+
+Capture workflow/policy evidence hanya tersedia pada source checkout dengan dependensi tes.
+Jalankan benchmark dan capture bersama di checkout tersebut. Instalasi wheel menolak capture
+karena tidak membawa test suite; laporan tidak otomatis menjadi bukti kelayakan rilis.
+Fingerprint wheel mengikat kode/resource terpasang, bukan source tree. Commit Git dicatat
+`unavailable` kecuali `QA_BENCHMARK_COMMIT_SHA` diberikan operator (bukan verifikasi Git).
+Dataset real-world privat tetap dikelola melalui source checkout, bukan di dalam instalasi wheel.
 
 ## Alur kerja dan keputusan manusia
 
@@ -84,7 +132,10 @@ Jangan membuka worker kedua atau mencoba melewati lock penulis database.
 ## Akses remote: bukan default
 
 Jangan mengekspos layanan loopback secara langsung. Akses remote memerlukan keputusan eksplisit,
-HTTPS, public origin yang tepat, dan validasi allowed host. Contoh konfigurasi reverse proxy:
+penggantian password awal dari Web lokal, HTTPS, public origin yang tepat, dan validasi allowed
+host. Server menolak public origin selama password awal masih digunakan; koneksi non-loopback
+juga ditolak pada kondisi tersebut. Header forwarded tidak dipercaya untuk melewati pemeriksaan.
+Contoh konfigurasi reverse proxy setelah password diganti:
 
 ```bash
 uv run qa-web serve --state /absolute/web-state --port 8000 --host 0.0.0.0 --public-origin https://qa.example.com
@@ -138,4 +189,4 @@ memaksakan keputusan pada versi baru. Run/import memakai identitas asli untuk me
 publikasi yang telah tersimpan. Review yang ditolak tetap ditolak dalam checkpoint; buat revisi
 baru sebelum meminta approval berikutnya.
 
-Halaman Reports dapat menerima unggahan laporan lama untuk inspeksi. Laporan impor tidak dapat menjadi bukti release; jalankan benchmark Web baru untuk jalur promosi. Browser tidak menerima path host.
+Halaman Reports dapat menerima unggahan laporan lama untuk inspeksi. Laporan impor tidak dapat menjadi bukti release; jalankan benchmark Web baru untuk jalur promosi. Browser hanya dapat mengubah path workspace melalui endpoint Settings khusus; path database, sumber, dan artifact tidak dapat ditentukan browser.

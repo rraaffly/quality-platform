@@ -48,6 +48,7 @@ from quality_platform.evaluation.workflow_evidence import code_fingerprint
 from quality_platform.llm.model_factory import create_chat_model
 from quality_platform.llm.registry import AgentRole, ModelRegistry
 from quality_platform.llm.usage import capture_usage
+from quality_platform.resources import runtime_root
 
 
 class LiveBenchmarkConfigurationError(ValueError):
@@ -99,7 +100,7 @@ class _LiveBenchmarkConfig(BaseModel):
 
 
 def _repository_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return runtime_root()
 
 
 def _load_live_config(root: Path, tier: str) -> tuple[_LiveBenchmarkConfig, bytes]:
@@ -285,7 +286,14 @@ def _commit_sha(root: Path) -> str:
     configured = os.getenv("QA_BENCHMARK_COMMIT_SHA")
     if configured:
         return configured
-    return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    # Installed wheels carry no Git checkout. Do not accidentally attribute them to a
+    # repository above the installation directory; the content fingerprint still binds the run.
+    if not (root / "src" / "quality_platform").is_dir():
+        return "unavailable"
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unavailable"
 
 
 async def run_live_benchmark(

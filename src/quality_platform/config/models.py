@@ -28,11 +28,19 @@ class AgentModels(BaseModel):
     evaluator: ModelSpec
 
 
-class AppConfig(BaseModel):
+class LocalConfig(BaseModel):
+    """Local installation settings may await model selection in the Web UI."""
+
     model_config = ConfigDict(extra="forbid")
 
     database_path: Path
     workspace_root: Path
     max_concurrency: int = Field(default=3, ge=1)
     test_case_style: Literal["detailed", "gherkin", "both"] = "both"
+    agent_models: AgentModels | None = None
+
+
+class AppConfig(LocalConfig):
+    """Executing or pinning workflows requires a complete model configuration."""
+
     agent_models: AgentModels

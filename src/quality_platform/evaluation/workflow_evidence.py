@@ -15,6 +15,7 @@ from quality_platform.evaluation.models import (
     SuiteTestResult,
     WorkflowSuiteEvidence,
 )
+from quality_platform.resources import PACKAGE_ROOT, runtime_root
 
 WORKFLOW_POLICY_SUITES = (
     "tests/e2e/test_web_workflows.py",
@@ -31,7 +32,7 @@ MISSING_WORKFLOW_EVIDENCE = "E2E_WORKFLOW_EVIDENCE_MISSING"
 
 
 def repository_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return runtime_root()
 
 
 def source_manifest(root: Path) -> dict[str, str]:
@@ -59,7 +60,16 @@ def source_manifest(root: Path) -> dict[str, str]:
 
 
 def code_fingerprint(root: Path | None = None) -> str:
-    manifest = source_manifest(root or repository_root())
+    selected = root or repository_root()
+    if selected == PACKAGE_ROOT / "_data":
+        # Hash installed code and resources, not an empty source manifest or .pyc caches.
+        manifest = {
+            path.relative_to(PACKAGE_ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(PACKAGE_ROOT.rglob("*"))
+            if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+        }
+    else:
+        manifest = source_manifest(selected)
     return hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
 
 
@@ -106,6 +116,12 @@ def capture_workflow_suite(
     root: Path | None = None,
 ) -> WorkflowSuiteEvidence:
     root = (root or repository_root()).resolve()
+    if not all((root / suite).is_file() for suite in WORKFLOW_POLICY_SUITES):
+        raise ValueError(
+            "Workflow evidence requires the source checkout and its test dependencies; "
+            "it cannot be captured from an installed wheel. Run the benchmark and evidence "
+            "suite together in the source checkout."
+        )
     before = code_fingerprint(root)
     if not report.code_fingerprint or report.code_fingerprint != before:
         raise ValueError("candidate code fingerprint is stale or absent; rerun the benchmark")

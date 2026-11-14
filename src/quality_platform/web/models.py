@@ -1,4 +1,4 @@
-"""Public web inputs deliberately contain no filesystem paths or actor overrides."""
+"""Public web inputs exclude actor overrides and domain filesystem paths."""
 
 from typing import Annotated, Literal
 
@@ -15,6 +15,18 @@ class Settings(BaseModel):
     agent_models: AgentModels
     max_concurrency: int = Field(ge=1, le=16)
     test_case_style: Literal["detailed", "gherkin", "both"]
+
+
+class WorkspaceSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(min_length=1)
+
+
+class AccountSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    display_name: str = Field(min_length=1, max_length=200)
+    current_password: str = Field(min_length=1)
+    new_password: str | None = Field(default=None, min_length=12)
 
 
 class Command(BaseModel):

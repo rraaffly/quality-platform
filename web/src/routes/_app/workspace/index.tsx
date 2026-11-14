@@ -10,6 +10,7 @@ function ProjectsPage() {
   const { data, error, loading } = useResource<{
     projects: Project[];
     settings_id: string;
+    models_configured: boolean;
     worker_healthy: boolean;
   }>("/api/projects");
   return (
@@ -22,6 +23,16 @@ function ProjectsPage() {
       <State loading={loading} error={error} />
       {data && (
         <>
+          {!data.models_configured && (
+            <Alert tone="warning" title="Models not configured">
+              You can create projects now. Before creating workflows or running benchmarks,
+              configure all agent models in{" "}
+              <Link to="/settings" className="underline">
+                Settings
+              </Link>
+              .
+            </Alert>
+          )}
           {!data.worker_healthy && (
             <Alert tone="warning" title="Worker offline">
               Commands can be queued, but processing will not start until the worker is running.

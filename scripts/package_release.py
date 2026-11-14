@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-ROOT_FILES = ("pyproject.toml", "uv.lock", "config.yaml", "README.md")
+ROOT_FILES = ("pyproject.toml", "uv.lock", "config.yaml", "README.md", "hatch_build.py")
 TREES = ("src", "tests", "benchmarks", "docs", "web/dist")
 SCRIPTS = ("install.ps1", "install.sh", "package_release.py", "smoke_release.py")
 EXCLUDED_PARTS = {

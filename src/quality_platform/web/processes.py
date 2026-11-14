@@ -1,7 +1,6 @@
 """Cross-platform background worker and loopback server lifecycle."""
 
 import json
-import os
 import subprocess
 import sys
 import time
@@ -14,6 +13,7 @@ import psutil
 from filelock import FileLock
 
 from quality_platform.evaluation.reporting import _atomic_write, _restrict_private_path
+from quality_platform.resources import runtime_root
 
 
 def _marker(state: Path) -> Path:
@@ -76,13 +76,13 @@ def _launch(state: Path, role: str, port: int, logs: Path) -> subprocess.Popen[b
     command = [sys.executable, "-m", "quality_platform.web.cli", role, "--state", str(state)]
     if role == "serve":
         command.extend(["--host", "127.0.0.1", "--port", str(port)])
-    options: dict[str, Any] = {"start_new_session": os.name != "nt"}
-    if os.name == "nt":
+    options: dict[str, Any] = {"start_new_session": sys.platform != "win32"}
+    if sys.platform == "win32":
         options["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     with (logs / f"{role}.log").open("ab") as output:
         return subprocess.Popen(
             command,
-            cwd=Path(__file__).resolve().parents[3],
+            cwd=state,
             stdin=subprocess.DEVNULL,
             stdout=output,
             stderr=subprocess.STDOUT,
@@ -108,7 +108,7 @@ def start(state: Path, port: int = 8000) -> str:
         raise ValueError("Quality Platform is not initialized; run quality-platform setup")
     if not 1 <= port <= 65535:
         raise ValueError("Port must be between 1 and 65535")
-    frontend = Path(__file__).resolve().parents[3] / "web" / "dist" / "index.html"
+    frontend = runtime_root() / "web" / "dist" / "index.html"
     if not frontend.is_file():
         raise ValueError("Frontend build is missing from this installation")
     with _lock(state):

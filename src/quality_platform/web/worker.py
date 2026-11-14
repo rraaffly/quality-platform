@@ -64,25 +64,24 @@ async def dispatch(
         return register_report(control, import_command.project_id, report)
     uploads = payload.pop("uploads", [])
     command = Command.model_validate(payload)
-    config = (
-        control.config(command.settings_id)
-        if command.kind == "create_workflow"
-        else control.config()
-    )
+    config = control.local_config()
     project, workflow, actor = command.project_id, command.workflow_id, job["actor"]
     if command.kind == "create_project":
-        root = confined(config.workspace_root, config.workspace_root / project)
-        root.mkdir(parents=True, exist_ok=True)
         try:
             existing = repo.read_project_record(project, project)
         except NoResultFound:
+            root = confined(config.workspace_root, config.workspace_root / project)
+            root.mkdir(parents=True, exist_ok=True)
             existing = create_project(repo, project, command.name, root)
-        if existing.root.resolve() != root or existing.name != command.name:
+        if existing.name != command.name:
             raise Conflict("Project ID already belongs to another project")
         return existing.model_dump(mode="json")
-    repo.read_project_record(project, project)
+    project_record = repo.read_project_record(project, project)
     assert workflow is not None
     if command.kind == "create_workflow":
+        workflow_config = control.config(command.settings_id).model_copy(
+            update={"workspace_root": project_record.root.resolve().parent}
+        )
         try:
             existing_workflow = repo.read_workflow(project, workflow)
         except NoResultFound:
@@ -91,7 +90,7 @@ async def dispatch(
             raise Conflict("Workflow ID already belongs to another workflow")
         from quality_platform.workflows.execution import configure_execution
 
-        configure_execution(repo, project, workflow, config, [])
+        configure_execution(repo, project, workflow, workflow_config, [])
         return repo.read_workflow(project, workflow).model_dump(mode="json")
     current = workflow_view(repo, project, workflow)
     # Replays of non-model commands are conservative: never apply a decision to newer data.
@@ -100,7 +99,7 @@ async def dispatch(
             "Reviewed state changed. Inspect current versions and submit a new decision."
         )
     if command.kind == "import":
-        project_root = repo.read_project_record(project, project).root
+        project_root = project_record.root
         target_directory = confined(
             project_root, project_root / ".quality-platform" / "uploads" / job["id"]
         )
@@ -123,7 +122,7 @@ async def dispatch(
         if not files:
             raise ValueError("Upload at least one Markdown file")
         sources = ingest_markdown(
-            project, files, repo, config.workspace_root, idempotency_key=job["id"]
+            project, files, repo, project_root.resolve().parent, idempotency_key=job["id"]
         )
         item = repo.read_workflow(project, workflow)
         repo.configure_workflow(
@@ -251,7 +250,7 @@ async def process_one(control: Control, repo: QaRepositories, *, model_factory: 
 
 async def run_worker(state: Path, *, once: bool = False, model_factory: Any = None) -> None:
     control = Control(state)
-    config = control.config()
+    config = control.local_config()
     with writer_lock(config.database_path):
         engine = open_database(config.database_path)
         control.recover()

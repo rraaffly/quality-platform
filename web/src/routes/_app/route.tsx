@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { ProtectedHeader, ProtectedSidebar } from "#/components/layout";
+import { Alert } from "#/components/arc/alert/alert";
 import styles from "#/components/layout/protected/protected-shell.module.css";
 import { getSession, type Session } from "#/lib/api";
 import { State } from "#/features/workspace/ui";
@@ -36,7 +37,7 @@ function AppLayout() {
         Skip to content
       </a>
       <ProtectedSidebar
-        actor={session.actor ?? "Owner"}
+        actor={session.display_name}
         collapsed={collapsed}
         onToggle={() => setCollapsed((value) => !value)}
         mobileOpen={mobileOpen}
@@ -49,6 +50,18 @@ function AppLayout() {
           onOpenMobile={() => setMobileOpen(true)}
         />
         <div id="main" className={styles.content} tabIndex={-1}>
+          {session.default_password && (
+            <div className="mb-5">
+              <Alert tone="warning" title="Replace the initial password">
+                Your dashboard still uses the initial password. Set a password of at least 12
+                characters in{" "}
+                <a href="/settings" className="underline">
+                  Settings
+                </a>
+                .
+              </Alert>
+            </div>
+          )}
           <Outlet />
         </div>
       </main>

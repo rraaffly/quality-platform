@@ -12,9 +12,7 @@ function LoginPage() {
       <div className="w-full space-y-6">
         <div className="space-y-1.5 text-left">
           <h2 className="text-2xl font-bold tracking-tight text-foreground">Welcome back</h2>
-          <p className="text-sm text-muted-foreground">
-            Sign in with the owner account created during setup.
-          </p>
+          <p className="text-sm text-muted-foreground">Enter your dashboard password to sign in.</p>
         </div>
 
         <LoginForm />

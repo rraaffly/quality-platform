@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type Session = { actor: string | null; csrf: string; worker_healthy: boolean };
+export type Session = {
+  actor: string | null;
+  csrf: string;
+  worker_healthy: boolean;
+  display_name: string;
+  default_password: boolean;
+};
 let session: Session | null = null;
 
 export async function getSession(): Promise<Session> {
@@ -145,7 +151,7 @@ export function useResource<T>(path: string, poll = false) {
   };
 }
 
-export function useAction() {
+export function useAction<T = object>() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const key = useRef<{ payload: string; value: string } | null>(null);
@@ -165,7 +171,7 @@ export function useAction() {
     setBusy(true);
     setError("");
     try {
-      const result = await api<{ job_id?: string; settings_id?: string }>(path, {
+      const result = await api<T & { job_id?: string; settings_id?: string }>(path, {
         method: "POST",
         body: body instanceof FormData ? body : JSON.stringify(body),
         headers: { "Idempotency-Key": key.current.value },
