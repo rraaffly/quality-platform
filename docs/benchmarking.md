@@ -1,6 +1,21 @@
 # Benchmarking and release evidence
 
-The authenticated Web app owns the evaluation workflow. Open **Reports** to start a confirmed Tier 2 or Tier 3 run, import an existing report for inspection, and open a Web-generated report for evidence capture and release review. Imported reports are summaries and cannot be promoted.
+The authenticated Web app owns the evaluation workflow. Open **Benchmark reports** to start a confirmed Tier 2 or Tier 3 run, import an existing report for inspection, and open a Web-generated report for evidence capture and release review. Imported reports are summaries and cannot be promoted. Installation and service operation are covered in the [Web guide](web.md); development rules are in [AGENTS.md](../AGENTS.md).
+
+## Bundled benchmark resources
+
+`benchmarks/` is versioned evaluation input, not the user's project workspace or an output directory:
+
+- `datasets/synthetic/` contains dataset manifests and public Markdown snapshots. The manifest selects cases, roles, source IDs, and pinned hashes.
+- `ground_truth/` contains expected findings, forbidden actions, and human approval records. Only approved reference cases are eligible for live scoring.
+- `rubrics/` contains rubric metadata and `quality-gates.yaml`, whose bundled thresholds remain `ILLUSTRATIVE` until supported by real calibration.
+- `configs/tier2.yaml` and `tier3.yaml` define representative cases, per-call reservation bounds, total budget limits, repeats, and readiness requirements.
+
+These public resources are included in the wheel and resolved through `quality_platform.resources.runtime_root()`; installed users do not need the repository or a separate `benchmarks` folder in their current directory. Treat installed resources as read-only. Private `real_world` datasets/gold and generated reports are excluded from the wheel; manage private evaluation inputs in a source checkout. Web reports and private review packets are stored under the configured control state, not back into the installed package.
+
+The bundled `v0.1` manifest currently has five cases; only `conflict` and `missing_rule` have approved gold. The remaining cases are pending review. This starter dataset is not evidence of complete production coverage.
+
+## Running from the Web
 
 | Tier | Trigger | Scope |
 | --- | --- | --- |
@@ -8,9 +23,13 @@ The authenticated Web app owns the evaluation workflow. Open **Reports** to star
 | 2 | Confirmed Web benchmark job | Approved representative cases for one production agent role and a static evaluator. |
 | 3 | Confirmed Web benchmark job | All supported approved cases, repeat scores, variance, usage, cost and readiness labels. |
 
-The browser requires the owner to choose the dataset version, pinned settings, repeat count, token rates for Analyst, Planner and evaluator, a maximum USD cost, and paid-run confirmation. Model routing uses one configured model per role, without fallback. The shared cost ledger reserves each candidate and evaluator call before invocation. Credentials stay in the worker environment. Starting or reading the app never initiates a paid benchmark.
+Configure all four agent roles in **Settings → Models & defaults** first. The benchmark form uses the current saved settings version and asks for the project, dataset version, tier/role, repeat count, token rates for Analyst, Planner and evaluator, a maximum USD cost, and paid-run confirmation. Tier 2 runs once; Tier 3 permits repeated evaluation within its configured limit. Model routing uses one configured model per role, without fallback. The shared cost ledger reserves each candidate and evaluator call before invocation. Credentials stay in the worker environment. Starting or reading the app never initiates a paid benchmark.
 
 Use **Calculate cost reservation** before confirmation. The Web quote reads the same approved dataset and tier configuration as the runner, showing selected cases, provider calls and the required reservation. The confirmed cap must cover that reservation and stay within the tier maximum. The quote is a reservation bound based on configured per-call costs; recorded usage cost uses the declared token rates.
+
+The bundled tier maxima are USD 5 for Tier 2 and USD 20 for Tier 3. Calculating a quote reads resources without calling a model; changing run inputs requires recalculation. The **Queue benchmark** action requires the paid-run checkbox. These benchmark limits do not cap ordinary workflow calls.
+
+Use **Register an existing report summary** for a JSON file named `report.json`. Imported entries are marked **Imported · viewing only**. **Inspect report JSON** expands the stored summary; it does not start a run or attach release evidence. A Web-generated record exposes the separate review/evidence route.
 
 ## Approved gold and private packets
 

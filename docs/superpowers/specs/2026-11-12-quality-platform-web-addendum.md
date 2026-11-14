@@ -2,7 +2,9 @@
 
 **Tanggal:** 2026-11-12
 
-**Status:** perluasan web lokal diimplementasikan; verifikasi native lintas platform dan paid model belum dilakukan.
+**Status saat ini:** arsip addendum transisi CLI/Web, bukan panduan operasional aktif. QA workflow CLI sudah dipensiunkan; batas laporan Web read-only telah digantikan benchmark, review, dan promosi melalui aksi Web eksplisit. Setup normal memakai `quality-platform setup`; `qa-web` tetap antarmuka operasional tingkat rendah. Ikuti [README](../../../README.md), [panduan Web](../../web.md), dan [Development Guidelines](../../../AGENTS.md). Isi berikut merekam keputusan dan batas verifikasi saat addendum disusun.
+
+**Status pada saat penulisan:** perluasan web lokal diimplementasikan; verifikasi native lintas platform dan paid model belum dilakukan.
 
 **Dasar:** [spesifikasi v0.2](2026-11-10-qa-orchestrator-mvp-python-v0.2-design.md).
 
@@ -113,7 +115,7 @@ lintas domain DB, checkpoint DB, dan control DB; tidak ada klaim exactly-once bi
 
 ## 7. Referensi
 
-- Baseline v0.2 dan [panduan CLI](../../cli.md) menjadi rujukan perilaku domain yang tidak berubah.
+- Baseline v0.2 merekam rancangan domain saat itu. Panduan QA CLI lama telah dipensiunkan; perilaku saat ini dirujuk melalui [panduan Web](../../web.md) dan kode/pengujian, bukan dengan menghidupkan kembali interface CLI lama.
 - [Rancangan web yang diberikan](https://ampcode.com/artifacts/rancangan-web-quality-platform-608a8eaa-f2ec-4405-9d4b-82738a10d1be)
   menetapkan tahapan dan batas MVP. Implementasi memakai endpoint command bersama, bukan
   semua nama route per aksi yang masih berupa usulan pada rancangan.

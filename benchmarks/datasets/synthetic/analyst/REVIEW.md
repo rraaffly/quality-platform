@@ -9,4 +9,6 @@ Status: **APPROVED** for `conflict` and `missing_rule`. Rafly Rafsanjani approve
 
 The independent TOTP line in `synthetic-independent-prd.md` is used by the offline Analyst tests to check that a clear, unrelated requirement can remain eligible for draft work.
 
-The `shared_scope` case belongs to Task 9 and is not part of this review. It and the other non-Analyst cases remain `PENDING_REVIEW`.
+The `shared_scope` case is outside this review. It and the other unapproved cases in `benchmarks/ground_truth/v0.1.json` remain `PENDING_REVIEW`.
+
+Approval of these reference findings is not approval of model quality or release readiness. The two approved cases still lack semantic definitions, and the bundled quality thresholds remain illustrative; see [the current benchmarking guide](../../../../docs/benchmarking.md).

@@ -1,6 +1,9 @@
 # QA Orchestrator MVP — System Design Specification v0.2
 
-**Status:** Proposed technical revision of the approved v0.1 product baseline; Python and uv confirmed; supporting library choices below are proposed.  
+**Current status:** Historical CLI baseline design (2026-11-10), not the active product specification. The CLI-only boundary, exclusion of Web/background workers, process lifecycle, and proposed defaults below have been superseded by the Web-first application. Use the current [README](../../../README.md), [Web guide](../../web.md), and [Development Guidelines](../../../AGENTS.md). The remaining sections preserve the original proposal, including domain/evaluation decisions that must be checked against current code and tests.
+
+**Original status:** Proposed technical revision of the approved v0.1 product baseline; Python and uv confirmed; supporting library choices below are proposed.
+
 **Date:** 2026-11-10  
 **Supersedes for implementation:** `2026-11-09-qa-orchestrator-mvp-design.md` (retained for history).  
 **Audience:** QA engineer / implementation team.  

@@ -1,6 +1,6 @@
 # Penggunaan web lokal
 
-**Status:** aplikasi Web lokal dioperasikan melalui launcher `quality-platform` pada Windows, macOS, dan Linux. Spesifikasi CLI QA v0.2 adalah catatan historis; batas produk sekarang adalah Web.
+**Status:** panduan operasional aplikasi saat ini. Web lokal dioperasikan melalui launcher `quality-platform` pada Windows, macOS, dan Linux. Spesifikasi/rencana bertanggal di `docs/superpowers/` adalah catatan historis, bukan instruksi setup atau backlog aktif. Untuk pengembangan, lihat [Development Guidelines](../AGENTS.md) dan [panduan frontend](../web/README.md).
 
 ## Persiapan dan menjalankan layanan
 
@@ -27,7 +27,7 @@ quality-platform stop
 
 `setup` langsung menginisialisasi aplikasi tanpa pertanyaan model, nama, atau kata sandi.
 Nama tampilan awal adalah `Owner`, dengan kata sandi awal `1234567890`. Login hanya meminta
-kata sandi. Ubah nama tampilan dan kata sandi melalui **Settings → Account** dengan memasukkan
+kata sandi. Ubah nama tampilan dan kata sandi melalui **Settings → Account & workspace → Account** dengan memasukkan
 kata sandi saat ini. Kata sandi pengganti minimal 12 karakter; penggantian mencabut seluruh sesi
 dan mewajibkan login ulang. Identitas audit tetap sama ketika nama tampilan diganti.
 State hanya menyimpan hash kata sandi. Peringatan password awal tetap tampil sampai diganti,
@@ -45,7 +45,7 @@ antrean, serta log di `state/`. Tidak ada opsi `--data-dir`, `--skip-models`, `-
 `setup` berulang tidak mengubah akun, pengaturan aktif, atau data yang sudah ada.
 
 Dashboard dan pembuatan proyek dapat digunakan tanpa model; pembuatan workflow dan benchmark
-memerlukan konfigurasi seluruh agent terlebih dahulu. Pilih model melalui **Settings** atau:
+memerlukan konfigurasi seluruh agent terlebih dahulu. Pilih model melalui **Settings → Models & defaults** atau:
 
 ```sh
 quality-platform config model
@@ -54,18 +54,19 @@ quality-platform config workspace /absolute/path/to/workspace
 
 `config model` menanyakan provider/model untuk empat agent tanpa memanggil provider.
 Tidak ada model placeholder atau fallback otomatis. Workspace juga dapat diganti melalui
-**Settings → Workspace location**; path Web harus absolut atau memakai `~/...`, sedangkan CLI
+**Settings → Account & workspace → Workspace location**; path Web harus absolut atau memakai `~/...`, sedangkan CLI
 juga menerima path relatif terhadap direktori terminal. Direktori diperiksa agar bisa ditulis.
 Perubahan workspace hanya berlaku untuk **proyek baru**. Proyek lama tetap memakai lokasi
 semula, termasuk workflow baru dan impor dokumen di dalam proyek itu. Tidak ada pemindahan
 file otomatis; database dan state aplikasi tetap berada di `.quality-platform`.
 CLI dan Web memakai pengaturan berversi yang sama di database kontrol, tanpa perlu restart.
-`config.yaml` adalah catatan bootstrap awal, bukan editor pengaturan aktif.
+`~/.quality-platform/config.yaml` dibuat oleh setup sebagai catatan bootstrap awal, bukan editor pengaturan aktif. Setup normal tidak membutuhkan file konfigurasi di root repository.
 
 Kredensial `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, atau `GOOGLE_API_KEY` disediakan lewat environment
 sebelum `dashboard` dinyalakan. `.env` tidak otomatis dimuat. Jangan masukkan rahasia ke YAML,
 instruksi, dokumen, log, atau laporan. Browser tidak menerima kredensial provider. Jika mengubah
 environment credential, jalankan `quality-platform stop` lalu `quality-platform dashboard` lagi.
+Tab **Settings → Provider connections** hanya menampilkan apakah environment variable tersedia; status tersebut bukan verifikasi bahwa key valid dan bukan form untuk menyimpan key.
 
 `dashboard` memulai satu worker dan satu server loopback di background, menunggu health API, lalu
 membuka browser. Ia tidak otomatis menjalankan model atau benchmark. `status` menunjukkan keadaan
@@ -78,6 +79,17 @@ gunakan `--no-open`. Hentikan layanan sebelum backup konsisten.
 lanjutan. Server dan UI berbagi origin agar cookie sesi HttpOnly dan proteksi CSRF bekerja.
 Jika build frontend tidak ada pada source checkout, server mengembalikan HTTP 503 dengan petunjuk
 build. Wheel rilis selalu mewajibkan build ini.
+
+## Antarmuka saat ini
+
+- Login hanya meminta password, tanpa logo atau branding aplikasi. Shell aplikasi tetap memakai sidebar dan main content, dengan drawer navigasi pada layar kecil.
+- **Projects** mengelola proyek, workflow, dan impor dokumen. Workflow membuka instruksi, requirement, klarifikasi, scope, artifact, dan history.
+- **Activity** menampilkan antrean/hasil job, identitas proyek/workflow, waktu, status, dan error yang tersedia. Membuka job tidak mengulanginya.
+- **Benchmark reports** memisahkan konfigurasi run, deklarasi harga token, reservasi/konfirmasi biaya, impor laporan, dan riwayat. JSON laporan dapat dibuka melalui **Inspect report JSON**.
+- **Settings** memiliki tab **Account & workspace**, **Models & defaults**, dan **Provider connections**. Mengganti model tidak mengganti snapshot workflow lama; mengganti workspace tidak memindahkan proyek lama.
+- UI memakai React dan Arc UI, font Instrument Sans/Spline Sans Mono, serta border radius 0px. Detail struktur dan pemeriksaan frontend ada di [panduan frontend](../web/README.md).
+
+## Upgrade dan batas distribusi
 
 Sebelum upgrade wheel, hentikan layanan dan backup data, kemudian pasang wheel baru dengan
 `uv tool install --force --python 3.12 /path/to/new-release.whl`. Direktori data tidak diganti.
@@ -93,8 +105,7 @@ Dataset real-world privat tetap dikelola melalui source checkout, bukan di dalam
 ## Alur kerja dan keputusan manusia
 
 1. Buat/pilih proyek, mulai workflow, dan impor Markdown. Sumber disalin menjadi snapshot immutable;
-   dokumen asli tidak diubah. Konfigurasi/model dipatok dalam snapshot workflow. Perubahan YAML
-   tidak mengganti model workflow lama; perubahan konfigurasi memerlukan workflow baru.
+   dokumen asli tidak diubah. Konfigurasi/model dipatok dalam snapshot workflow. Perubahan model melalui Settings atau CLI tidak mengganti model workflow lama; gunakan workflow baru untuk memakai konfigurasi baru.
 2. Tinjau instruksi dan konfirmasikan **run live** sebelum memasukkan pekerjaan yang memanggil
    provider. **Tidak ada batas biaya moneter workflow.** `max_concurrency` hanya batas paralelisme,
    bukan batas token atau tagihan; gunakan pembatasan di provider bila tersedia.
@@ -133,11 +144,21 @@ Jangan mengekspos layanan loopback secara langsung. Akses remote memerlukan kepu
 penggantian password awal dari Web lokal, HTTPS, public origin yang tepat, dan validasi allowed
 host. Server menolak public origin selama password awal masih digunakan; koneksi non-loopback
 juga ditolak pada kondisi tersebut. Header forwarded tidak dipercaya untuk melewati pemeriksaan.
-Contoh konfigurasi reverse proxy setelah password diganti:
+Untuk memakai server manual, hentikan pasangan server/worker milik launcher terlebih dahulu dengan `quality-platform stop`. Jalankan satu worker dan satu server di terminal terpisah, keduanya memakai state yang sama dan sudah diinisialisasi. Jangan menjalankan worker manual bersamaan dengan worker launcher.
 
-```bash
-uv run qa-web serve --state /absolute/web-state --port 8000 --host 0.0.0.0 --public-origin https://qa.example.com
+Contoh untuk source checkout setelah password diganti; sesuaikan path state absolut dengan home pengguna (di Windows gunakan path Windows):
+
+```sh
+uv run qa-web worker --state /absolute/path/to/.quality-platform/state
 ```
+
+Pada terminal kedua, dengan reverse proxy HTTPS yang sudah dikonfigurasi:
+
+```sh
+uv run qa-web serve --state /absolute/path/to/.quality-platform/state --port 8000 --host 0.0.0.0 --public-origin https://qa.example.com
+```
+
+Untuk instalasi wheel, gunakan `qa-web` langsung tanpa awalan `uv run`. Kedua command manual berjalan di foreground; pengelolaan `status`/`stop` launcher hanya berlaku pada proses yang dicatat oleh launcher. `qa-web init` masih tersedia untuk bootstrap operasional khusus dengan konfigurasi lengkap dan password interaktif, tetapi bukan jalur setup pengguna normal.
 
 Ini bukan deployment otomatis; TLS harus diterminasi reverse proxy yang dikonfigurasi operator.
 Origin publik harus cocok dengan host yang diizinkan; tanpa konfigurasi ini, binding non-loopback
@@ -175,6 +196,7 @@ source, artifact, settings dan report tersedia di `/api/*`; versi lama `/project
 diarahkan ke route React. Upload multipart dengan `Accept: application/json` mengembalikan job
 JSON, begitu juga retry JSON dengan konfirmasi biaya eksplisit.
 Penyimpanan settings juga memakai key idempoten. Header/key sama dengan payload berbeda ditolak.
+Form model memakai `POST /api/settings`; workspace memakai `POST /api/workspace`, keduanya dengan CSRF dan `Idempotency-Key`. Form akun memakai `POST /api/account` dengan CSRF dan password saat ini; endpoint akun tidak memakai kontrak idempotency key. Penggantian password mencabut cookie/sesi dan mengarahkan pengguna ke login ulang.
 
 Command JSON diterima sebagai `202` beserta `job_id` dan `status_url`. Baca status di
 `GET /api/jobs/{job_id}`; polling tidak mengulangi eksekusi. Status command `SUCCEEDED` bukan

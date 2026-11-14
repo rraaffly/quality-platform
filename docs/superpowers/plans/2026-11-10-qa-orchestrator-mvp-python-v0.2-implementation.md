@@ -1,6 +1,6 @@
 # QA Orchestrator Python MVP v0.2 Implementation Plan
 
-> **For agentic workers:** superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Current status:** Historical CLI baseline implementation plan (2026-11-10), not an active backlog or execution instruction. The checklists, commands, target layout, and final "Implementation has not started" statement record the planning state at that time. The QA workflow CLI and prohibition of Web/workers have been superseded. Use the current [README](../../../README.md), [Web guide](../../web.md), and [Development Guidelines](../../../AGENTS.md); do not execute the archived checklist as a new task. The remaining sections preserve the original plan.
 
 **Goal:** Deliver one Python CLI QA Orchestrator that reliably processes multi-document requirement analysis, stakeholder clarification, test planning and test case design under scoped human approval, with evaluation from the beginning.
 

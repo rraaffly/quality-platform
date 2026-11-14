@@ -1,5 +1,7 @@
 # Operational CLI Launcher Design
 
+**Current status:** Historical initial launcher design (2026-11-13), not current installation instructions. Background worker/server operation remains relevant, but platformdirs paths, interactive setup, source ZIP installers, and deferred wheel support below have been superseded. Releases now use a wheel containing the frontend and public benchmark resources; non-interactive setup stores private data in `~/.quality-platform`. Use the current [README](../../../README.md), [Web guide](../../web.md), and [Development Guidelines](../../../AGENTS.md). The remaining sections preserve the original proposal.
+
 ## Intent
 
 After installing Quality Platform on Windows, macOS or Linux, a user runs `quality-platform setup` once and `quality-platform dashboard` whenever they want to open the local Web UI. The terminal may close after `dashboard`; the local worker and HTTP server continue running. QA workflows, evaluation, review and release remain Web actions. This operational launcher does not restore `qa-orchestrator` or its compatibility surface.

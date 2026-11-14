@@ -1,5 +1,7 @@
 # Web-First Local Quality Platform Implementation Plan
 
+**Current status:** Historical Web-first migration record (snapshot 2026-11-13), not current setup instructions or an active backlog. Web-first QA and retirement of the QA workflow CLI remain product decisions. PowerShell launchers, manual bootstrap configuration, and source-checkout installation below have been superseded by wheel releases and `quality-platform setup/dashboard`. Use the current [README](../../../README.md), [Web guide](../../web.md), and [Development Guidelines](../../../AGENTS.md).
+
 **Execution status (2026-11-13):** Tasks 1–8 are implemented on `codex/web-first-local`. The Reports page hosts benchmark intake and cost reservation estimates; the per-report review page hosts pinned inputs, blind review, release decisions and promotion. `qa-web` exposes only `init`, `worker`, and `serve`. The checkboxes below are the original planning steps, not a checked execution ledger.
 
 | Task | Implementation | Verification limit |
@@ -12,7 +14,7 @@
 
 The completion gate remains **partially verified** until a fresh Windows checkout is manually configured and exercised through the browser. Paid-provider quality and release readiness require separate approved evidence and are outside offline verification.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+The verification table, completion gate, and checklists describe that historical snapshot; they are not verification of the current checkout or instructions to repeat the migration.
 
 **Goal:** Make the local Web app the sole QA product interface, provide a reliable Windows startup path, move evaluation and release decisions into Web, and retire the QA workflow CLI without backward compatibility.
 

@@ -1,6 +1,6 @@
 # Cross-Platform Operational CLI Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Current status:** Historical initial cross-platform launcher plan (2026-11-13), not an active implementation instruction. Checklists record the earlier design. Platformdirs, setup options/prompts, source ZIPs, and platform installers have been superseded by non-interactive setup in `~/.quality-platform`, model/workspace configuration through CLI or Web Settings, and wheel releases. Use the current [README](../../../README.md), [Web guide](../../web.md), and [Development Guidelines](../../../AGENTS.md). The remaining sections preserve the original plan rather than defining new work.
 
 **Goal:** Let a user run `quality-platform setup` once, then `quality-platform dashboard` from any directory to start the local Web app in the background and open a browser on Windows, macOS and Linux.
 
